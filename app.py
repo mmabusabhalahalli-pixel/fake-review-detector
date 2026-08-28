@@ -236,44 +236,75 @@ def review_checker_page():
 # ============================================================
 # BATCH CHECKER PAGE
 # ============================================================
+def run_batch_predictions(review_list, model, vectorizer):
+    results = []
+    progress = st.progress(0)
+    total = len(review_list)
+    for i, text in enumerate(review_list):
+        label, confidence, _ = predict_review(text, model, vectorizer)
+        results.append({"review": text, "prediction": label, "confidence (%)": round(confidence, 1)})
+        progress.progress((i + 1) / total)
+    return pd.DataFrame(results)
+
+
+def show_batch_results(result_df):
+    total = len(result_df)
+    st.success(f"✅ Checked {total} reviews!")
+    st.dataframe(result_df)
+
+    fake_count = (result_df["prediction"].str.contains("Fake")).sum()
+    real_count = total - fake_count
+    c1, c2 = st.columns(2)
+    c1.metric("Real Reviews", real_count)
+    c2.metric("Fake Reviews", fake_count)
+
+    csv_out = result_df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download Results as CSV", csv_out, "review_results.csv", "text/csv")
+
+
 def batch_checker_page():
     st.markdown('<h1 class="hero-title">📂 Batch Review Checker</h1>', unsafe_allow_html=True)
-    st.write("Upload a CSV file with a column of reviews to check many reviews at once.")
+    st.write("Check many reviews at once — either upload a CSV file or paste multiple reviews directly.")
 
     model, vectorizer = load_model()
 
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+    tab1, tab2 = st.tabs(["📋 Paste Multiple Reviews", "📁 Upload CSV File"])
 
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-        st.write("Preview of uploaded file:")
-        st.dataframe(df.head())
+    # ---------------- TAB 1: Paste multiple reviews ----------------
+    with tab1:
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        st.write("Copy reviews from Amazon, Flipkart, Meesho, etc. and paste them below — **one review per line**.")
+        pasted_text = st.text_area(
+            "Paste reviews here (one per line):",
+            height=220,
+            placeholder="Bought this two weeks ago, works great!\nExcellent product! Best quality ever! Amazing!\nDecent for the price, delivery was on time."
+        )
 
-        col_name = st.selectbox("Select the column that contains the review text:", df.columns)
+        if st.button("🔍 Check Pasted Reviews", type="primary"):
+            lines = [line.strip() for line in pasted_text.split("\n") if line.strip()]
+            if not lines:
+                st.warning("⚠️ Please paste at least one review.")
+            else:
+                result_df = run_batch_predictions(lines, model, vectorizer)
+                show_batch_results(result_df)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        if st.button("🔍 Check All Reviews", type="primary"):
-            results = []
-            progress = st.progress(0)
-            total = len(df)
-            for i, text in enumerate(df[col_name].astype(str)):
-                label, confidence, _ = predict_review(text, model, vectorizer)
-                results.append({"review": text, "prediction": label, "confidence (%)": round(confidence, 1)})
-                progress.progress((i + 1) / total)
+    # ---------------- TAB 2: CSV upload ----------------
+    with tab2:
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
-            result_df = pd.DataFrame(results)
-            st.success(f"✅ Checked {total} reviews!")
-            st.dataframe(result_df)
+        if uploaded_file is not None:
+            df = pd.read_csv(uploaded_file)
+            st.write("Preview of uploaded file:")
+            st.dataframe(df.head())
 
-            fake_count = (result_df["prediction"].str.contains("Fake")).sum()
-            real_count = total - fake_count
-            c1, c2 = st.columns(2)
-            c1.metric("Real Reviews", real_count)
-            c2.metric("Fake Reviews", fake_count)
+            col_name = st.selectbox("Select the column that contains the review text:", df.columns)
 
-            csv_out = result_df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ Download Results as CSV", csv_out, "review_results.csv", "text/csv")
-    st.markdown('</div>', unsafe_allow_html=True)
+            if st.button("🔍 Check All Reviews", type="primary"):
+                result_df = run_batch_predictions(df[col_name].astype(str).tolist(), model, vectorizer)
+                show_batch_results(result_df)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "Home"; st.rerun()
