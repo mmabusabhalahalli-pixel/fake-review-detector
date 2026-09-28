@@ -5,3 +5,5 @@ pandas
 numpy
 matplotlib
 wordcloud
+gspread 
+google-auth
