@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
+import requests
+from datetime import datetime
 
 # ---------- Page Setup ----------
 st.set_page_config(
@@ -55,6 +57,44 @@ if "logged_in" not in st.session_state:
 if "page" not in st.session_state:
     st.session_state.page = "Home"
 
+# ---------- Google Sheets Logging (via Apps Script Web App) ----------
+def get_apps_script_url():
+    try:
+        return st.secrets["APPS_SCRIPT_URL"]
+    except Exception:
+        return None
+
+def log_to_sheet(review, prediction, confidence):
+    """Send one row to the Google Sheet. Never breaks the app if it fails."""
+    url = get_apps_script_url()
+    if not url:
+        return
+    try:
+        requests.post(
+            url,
+            json={"review": review, "prediction": prediction, "confidence": confidence},
+            timeout=5,
+        )
+    except Exception:
+        pass  # logging failure should never break the user's experience
+
+@st.cache_data(ttl=30)
+def get_dashboard_data():
+    """Fetch all logged rows from the Google Sheet. Returns a DataFrame or None."""
+    url = get_apps_script_url()
+    if not url:
+        return None
+    try:
+        resp = requests.get(url, timeout=8)
+        rows = resp.json()
+        if not rows or len(rows) < 2:
+            return pd.DataFrame(columns=["timestamp", "review", "prediction", "confidence"])
+        df = pd.DataFrame(rows[1:], columns=["timestamp", "review", "prediction", "confidence"])
+        return df
+    except Exception:
+        return None
+
+
 @st.cache_resource
 def load_model():
     model = joblib.load("fake_review_model.pkl")
@@ -76,7 +116,6 @@ def predict_review(review_text, model, vectorizer):
     return label, confidence, prediction
 
 def explain_review(review_text, model, vectorizer, top_n=6):
-    """Return top words pushing the prediction toward Fake and toward Real."""
     cleaned = clean_text(review_text)
     vec = vectorizer.transform([cleaned])
     feature_names = np.array(vectorizer.get_feature_names_out())
@@ -164,7 +203,7 @@ def home_page():
     st.caption("Note: these links open the official site in a new tab (these platforms don't allow being displayed inside other websites).")
 
     st.markdown("---")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         if st.button("🔍 Review Checker", type="primary"):
             st.session_state.page = "Review Checker"; st.rerun()
@@ -174,10 +213,13 @@ def home_page():
     with c3:
         if st.button("📊 Insights"):
             st.session_state.page = "Insights"; st.rerun()
+    with c4:
+        if st.button("📈 Dashboard"):
+            st.session_state.page = "Dashboard"; st.rerun()
 
 
 # ============================================================
-# REVIEW CHECKER PAGE (with explanation)
+# REVIEW CHECKER PAGE (with explanation + logging)
 # ============================================================
 def review_checker_page():
     st.markdown('<h1 class="hero-title">🔍 Review Checker</h1>', unsafe_allow_html=True)
@@ -196,6 +238,8 @@ def review_checker_page():
             st.warning("⚠️ Please enter a review first.")
         else:
             label, confidence, prediction = predict_review(review_input, model, vectorizer)
+            log_to_sheet(review_input, label, round(confidence, 1))
+
             st.markdown("---")
             if prediction == 1:
                 st.error(f"### ❌ {label}")
@@ -234,7 +278,7 @@ def review_checker_page():
 
 
 # ============================================================
-# BATCH CHECKER PAGE
+# BATCH CHECKER PAGE (with logging)
 # ============================================================
 def run_batch_predictions(review_list, model, vectorizer):
     results = []
@@ -242,6 +286,7 @@ def run_batch_predictions(review_list, model, vectorizer):
     total = len(review_list)
     for i, text in enumerate(review_list):
         label, confidence, _ = predict_review(text, model, vectorizer)
+        log_to_sheet(text, label, round(confidence, 1))
         results.append({"review": text, "prediction": label, "confidence (%)": round(confidence, 1)})
         progress.progress((i + 1) / total)
     return pd.DataFrame(results)
@@ -270,7 +315,6 @@ def batch_checker_page():
 
     tab1, tab2 = st.tabs(["📋 Paste Multiple Reviews", "📁 Upload CSV File"])
 
-    # ---------------- TAB 1: Paste multiple reviews ----------------
     with tab1:
         st.markdown('<div class="info-box">', unsafe_allow_html=True)
         st.write("Copy reviews from Amazon, Flipkart, Meesho, etc. and paste them below — **one review per line**.")
@@ -289,7 +333,6 @@ def batch_checker_page():
                 show_batch_results(result_df)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ---------------- TAB 2: CSV upload ----------------
     with tab2:
         st.markdown('<div class="info-box">', unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
@@ -311,7 +354,7 @@ def batch_checker_page():
 
 
 # ============================================================
-# INSIGHTS PAGE (Word Clouds from model weights)
+# INSIGHTS PAGE
 # ============================================================
 def insights_page():
     st.markdown('<h1 class="hero-title">📊 Model Insights</h1>', unsafe_allow_html=True)
@@ -349,13 +392,73 @@ def insights_page():
 
 
 # ============================================================
+# DASHBOARD PAGE (reads from Google Sheet)
+# ============================================================
+def dashboard_page():
+    st.markdown('<h1 class="hero-title">📈 Admin Dashboard</h1>', unsafe_allow_html=True)
+    st.write("All-time statistics logged from every review checked on this system.")
+
+    if not get_apps_script_url():
+        st.warning(
+            "⚠️ Dashboard logging is not connected yet. Add your Google Apps Script Web App "
+            "URL to Streamlit secrets as `APPS_SCRIPT_URL` to enable this page."
+        )
+        if st.button("⬅️ Back to Home"):
+            st.session_state.page = "Home"; st.rerun()
+        return
+
+    if st.button("🔄 Refresh Data"):
+        st.cache_data.clear()
+
+    df = get_dashboard_data()
+
+    if df is None:
+        st.error("❌ Could not connect to the Google Sheet. Check the Apps Script URL and try again.")
+    elif len(df) == 0:
+        st.info("No reviews have been logged yet. Go check a few reviews first!")
+    else:
+        total = len(df)
+        fake_count = df["prediction"].astype(str).str.contains("Fake").sum()
+        real_count = total - fake_count
+
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Reviews Checked", total)
+        c2.metric("Fake Detected", int(fake_count))
+        c3.metric("Real Detected", int(real_count))
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        st.subheader("Fake vs Real Distribution")
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax.pie(
+            [fake_count, real_count],
+            labels=["Fake", "Real"],
+            autopct="%1.1f%%",
+            colors=["#C0392B", "#27AE60"],
+            startangle=90,
+        )
+        ax.axis("equal")
+        st.pyplot(fig)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        st.subheader("Recent Activity")
+        st.dataframe(df.sort_values("timestamp", ascending=False).head(15))
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if st.button("⬅️ Back to Home"):
+        st.session_state.page = "Home"; st.rerun()
+
+
+# ============================================================
 # MAIN APP FLOW
 # ============================================================
 if not st.session_state.logged_in:
     login_page()
 else:
     st.sidebar.title("📂 Navigation")
-    pages = ["Home", "Review Checker", "Batch Checker", "Insights"]
+    pages = ["Home", "Review Checker", "Batch Checker", "Insights", "Dashboard"]
     nav_choice = st.sidebar.radio("Go to:", pages, index=pages.index(st.session_state.page))
     st.session_state.page = nav_choice
 
@@ -372,3 +475,5 @@ else:
         batch_checker_page()
     elif st.session_state.page == "Insights":
         insights_page()
+    elif st.session_state.page == "Dashboard":
+        dashboard_page()
