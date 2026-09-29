@@ -104,6 +104,23 @@ body:has(.signup-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton
 .signup-divider { display:flex; align-items:center; gap:12px; color:#9CA3AF; font-size:13px; margin:18px 0 12px; }
 .signup-divider:before,.signup-divider:after { content:""; height:1px; background:#E2E6EB; flex:1; }
 .signup-login { text-align:center; color:#6B7280; font-size:14px; margin-top:14px; }
+
+/* ---------- Figma Credential Recovery / Reset Password ---------- */
+.recovery-marker { text-align:center; }
+.recovery-portal { text-align:center; color:#17365D; font-size:12px; font-weight:800; letter-spacing:2px; margin-top:8px; }
+.recovery-title { color:#17365D; font-size:38px; font-weight:800; text-align:center; margin:4px 0 8px; }
+.recovery-subtitle { color:#6B7280; font-size:15px; text-align:center; line-height:1.5; margin:0 auto 24px; max-width:560px; }
+.recovery-note { text-align:center; color:#667085; font-size:12px; margin-top:16px; line-height:1.5; }
+.recovery-footer { text-align:center; color:#7A8494; font-size:11px; line-height:1.7; margin-top:18px; }
+.recovery-footer b { color:#526173; letter-spacing:.5px; }
+.recovery-security { text-align:center; color:#526173; font-size:12px; font-weight:800; letter-spacing:.5px; margin-top:16px; }
+.recovery-node { text-align:center; color:#7A8494; font-size:11px; margin-top:10px; }
+body:has(.recovery-marker) [data-testid="stForm"] { background:rgba(255,255,255,.97)!important; border:1px solid rgba(31,78,121,.08)!important; border-radius:20px!important; padding:28px 34px 24px!important; box-shadow:0 12px 30px rgba(31,78,121,.12),0 2px 8px rgba(0,0,0,.05)!important; }
+body:has(.recovery-marker) [data-testid="stForm"] label { color:#25364A!important; font-weight:650!important; font-size:15px!important; }
+body:has(.recovery-marker) [data-testid="stForm"] input { background:#fff!important; border:1px solid #D8DEE7!important; border-radius:10px!important; min-height:46px!important; }
+body:has(.recovery-marker) [data-testid="stForm"] input:focus { border:1.5px solid #2E86C1!important; box-shadow:0 0 0 2px rgba(46,134,193,.12)!important; }
+body:has(.recovery-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button { background:#1F4E79!important; color:white!important; border:0!important; border-radius:10px!important; min-height:48px!important; font-weight:700!important; width:100%!important; }
+body:has(.recovery-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover { background:#173B5C!important; transform:none!important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -212,66 +229,91 @@ def login_page():
     st.markdown('<div class="login-lock">🔒</div>', unsafe_allow_html=True)
     st.markdown('<div class="login-title">Login</div>', unsafe_allow_html=True)
     st.markdown('<div class="login-subtitle">Please log in to access the Fake Review Detection System.</div>', unsafe_allow_html=True)
+
     with st.form("figma_login_form", clear_on_submit=False):
-        username=st.text_input("Username",placeholder="Username")
-        email=st.text_input("Email",placeholder="Enter your Email")
-        password=st.text_input("Password",type="password",placeholder="Password")
-        c1,c2=st.columns([1,1])
-        with c1: st.checkbox("Remember me")
-        with c2: st.markdown('<div style="text-align:right;padding-top:7px;color:#2E86C1;font-size:14px;">Forgot password?</div>',unsafe_allow_html=True)
-        clicked=st.form_submit_button("Login")
+        username = st.text_input("Username", placeholder="Username")
+        email = st.text_input("Email", placeholder="Enter your Email")
+        password = st.text_input("Password", type="password", placeholder="Password")
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.checkbox("Remember me")
+        with c2:
+            forgot_clicked = st.form_submit_button("Forgot password?")
+
+        clicked = st.form_submit_button("Login")
+
+        if forgot_clicked:
+            st.session_state.auth_screen = "recovery"
+            st.rerun()
+
         if clicked:
-            ok=username==VALID_USERNAME and password==VALID_PASSWORD
-            if username in st.session_state.created_accounts: ok=password==st.session_state.created_accounts[username]["password"]
+            ok = username == VALID_USERNAME and password == VALID_PASSWORD
+            if username in st.session_state.created_accounts:
+                ok = password == st.session_state.created_accounts[username]["password"]
             if ok:
-                st.session_state.logged_in=True; st.session_state.page="Home"; st.rerun()
-            else: st.error("❌ Invalid username or password. Please try again.")
-    st.markdown('<div class="login-divider"><span>OR CONTINUE WITH</span></div>',unsafe_allow_html=True)
-    st.markdown('<div class="login-google">🌐 &nbsp; Sign in with Google</div>',unsafe_allow_html=True)
-    st.markdown('<div class="login-signup">Don\'t have an account?</div>', unsafe_allow_html=True)
-    if st.button("Sign up",key="open_signup"):
-        st.session_state.auth_screen="signup"; st.rerun()
-    st.markdown(f'<div class="login-demo">• &nbsp; Demo credentials: &nbsp; <b>{VALID_USERNAME}</b> / <b>{VALID_PASSWORD}</b></div>',unsafe_allow_html=True)
-
-
-def password_strength(password):
-    score=sum([len(password)>=8,bool(re.search(r'[A-Z]',password)),bool(re.search(r'[a-z]',password)),bool(re.search(r'\d',password)),bool(re.search(r'[^A-Za-z0-9]',password))])
-    return ("Good","strength-good") if score>=4 else (("Medium","strength-medium") if score>=2 else ("Weak","strength-weak"))
-
-
-def create_account_page():
-    st.markdown('<div class="signup-marker"></div>',unsafe_allow_html=True)
-    st.markdown('<div class="signup-portal">SECURITY PORTAL</div>',unsafe_allow_html=True)
-    st.markdown('<div class="signup-title">Create Account</div>',unsafe_allow_html=True)
-    st.markdown('<div class="signup-subtitle">Register to access the Fake Review Detection &amp; Trust<br>Analytics System.</div>',unsafe_allow_html=True)
-    st.markdown('<div class="signup-google">🌐 &nbsp; Sign up with Google</div>',unsafe_allow_html=True)
-    st.markdown('<div class="signup-divider"><span>OR REGISTER WITH EMAIL</span></div>',unsafe_allow_html=True)
-    with st.form("create_account_form",clear_on_submit=False):
-        full_name=st.text_input("Full Name",placeholder="e.g. Alex Morgan")
-        work_email=st.text_input("Work Email",placeholder="alex@company.com")
-        password=st.text_input("Password",type="password",placeholder="••••••••••••")
-        if password:
-            strength,cls=password_strength(password)
-            st.markdown(f'<div style="margin-top:-8px;margin-bottom:12px;font-size:13px;">Security Strength: <span class="{cls}">{strength}</span></div>',unsafe_allow_html=True)
-        confirm=st.text_input("Confirm Password",type="password",placeholder="••••••••••••")
-        agree=st.checkbox("I agree to the Terms of Verification and Privacy Protocol.")
-        clicked=st.form_submit_button("Create Account")
-        if clicked:
-            if not full_name.strip(): st.error("Please enter your full name.")
-            elif not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$",work_email.strip()): st.error("Please enter a valid work email.")
-            elif len(password)<8: st.error("Password must contain at least 8 characters.")
-            elif password!=confirm: st.error("Passwords do not match.")
-            elif not agree: st.error("Please agree to the Terms of Verification and Privacy Protocol.")
+                st.session_state.logged_in = True
+                st.session_state.page = "Home"
+                st.rerun()
             else:
-                username=work_email.split("@")[0].strip().lower()
-                st.session_state.created_accounts[username]={"full_name":full_name.strip(),"email":work_email.strip(),"password":password}
-                st.session_state.auth_screen="login"; st.success(f"Account created successfully. Your username is: {username}"); st.rerun()
-    st.markdown('<div class="security-note">🔐 End-to-End Cryptographic Ledger: Audit telemetry enabled<br>on this account registration.</div>',unsafe_allow_html=True)
-    st.markdown('<div class="signup-login">Already have an account?</div>',unsafe_allow_html=True)
-    if st.button("Log in",key="back_to_login"):
-        st.session_state.auth_screen="login"; st.rerun()
-    footer="""<div class="security-footer"><b>SOC-2 TYPE II CERTIFIED &amp; ISO-27001 COMPLIANT</b><br>© 2025 Veritas Shield Threat Intelligence. Cryptographically Secured.<br><b>Privacy Protocol</b> &nbsp;&nbsp; <b>Terms of Verification</b> &nbsp;&nbsp; <b>Audit Telemetry</b> &nbsp;&nbsp; <b>Security Architecture</b></div>"""
-    st.markdown(footer,unsafe_allow_html=True)
+                st.error("❌ Invalid username or password. Please try again.")
+
+    st.markdown('<div class="login-divider"><span>OR CONTINUE WITH</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-google">🌐 &nbsp; Sign in with Google</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-signup">Don\'t have an account?</div>', unsafe_allow_html=True)
+    if st.button("Sign up", key="open_signup"):
+        st.session_state.auth_screen = "signup"
+        st.rerun()
+    st.markdown(f'<div class="login-demo">• &nbsp; Demo credentials: &nbsp; <b>{VALID_USERNAME}</b> / <b>{VALID_PASSWORD}</b></div>', unsafe_allow_html=True)
+
+
+# ============================================================
+# CREDENTIAL RECOVERY / RESET PASSWORD PAGE
+# ============================================================
+def recovery_page():
+    st.markdown('<div class="recovery-marker"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="recovery-portal">SECURITY PORTAL</div>', unsafe_allow_html=True)
+    st.markdown('<div class="recovery-title">CREDENTIAL RECOVERY</div>', unsafe_allow_html=True)
+    st.markdown('<div class="recovery-subtitle"><b>Reset Password</b><br>Enter your registered email address and we\'ll send you<br>verification instructions to reset your account password.</div>', unsafe_allow_html=True)
+
+    with st.form("recovery_form", clear_on_submit=False):
+        email = st.text_input(
+            "Email Address *",
+            placeholder="Enter your registered email (e.g. name@company.com)"
+        )
+        st.markdown(
+            '<div class="recovery-note">Recovery links remain active for precisely 15 minutes.</div>',
+            unsafe_allow_html=True
+        )
+        send_clicked = st.form_submit_button("Send Reset Instructions")
+
+        if send_clicked:
+            email_clean = email.strip().lower()
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_clean):
+                st.error("Please enter a valid registered email address.")
+            else:
+                st.success("✅ Reset instructions have been requested for this email address.")
+                st.info("For the live password-reset email, we will connect this page to the authentication service next.")
+
+    st.markdown(
+        '<div class="recovery-note"><b>Need immediate access?</b> Contact system administrator<br>at <b>security@veritas-shield.io</b></div>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<div class="recovery-security">🔒 256-BIT SSL SAFEGUARDED &nbsp;&nbsp; | &nbsp;&nbsp; SOC2 Type II</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.button("⬅️ Back to Login", key="recovery_back_login"):
+        st.session_state.auth_screen = "login"
+        st.rerun()
+
+    st.markdown(
+        '<div class="recovery-node">Verified Identity Node #804-F</div>',
+        unsafe_allow_html=True
+    )
+    footer = """<div class="recovery-footer">© 2025 Veritas Shield Threat Intelligence. Cryptographically Secured.<br><b>Privacy Protocol</b> &nbsp;&nbsp; <b>Terms of Verification</b> &nbsp;&nbsp; <b>Audit Telemetry</b> &nbsp;&nbsp; <b>Security Architecture</b></div>"""
+    st.markdown(footer, unsafe_allow_html=True)
 
 
 # ============================================================
@@ -567,6 +609,8 @@ def dashboard_page():
 if not st.session_state.logged_in:
     if st.session_state.auth_screen == "signup":
         create_account_page()
+    elif st.session_state.auth_screen == "recovery":
+        recovery_page()
     else:
         login_page()
 else:
