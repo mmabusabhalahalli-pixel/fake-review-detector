@@ -18,7 +18,7 @@ st.set_page_config(
 # ---------- Global 3D / Attractive Styling ----------
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #f0f4f8 0%, #d9e6f5 100%); }
+.stApp { background: #EAF1F8; }
 .platform-card {
     border-radius: 16px; padding: 22px 10px; text-align: center;
     background: linear-gradient(145deg, #ffffff, #eef2f7);
@@ -47,52 +47,42 @@ div.stButton > button {
 div.stButton > button:hover { transform: translateY(-2px); }
 .stTextArea textarea, .stTextInput input { border-radius: 10px !important; box-shadow: inset 2px 2px 6px rgba(0,0,0,0.08); }
 
-.login-wrapper {
-    max-width: 620px;
-    margin: 20px auto 0 auto;
-    text-align: center;
+/* ---------- Figma Login Page ---------- */
+.login-title { color:#17365D; font-size:42px; font-weight:800; text-align:center; margin:4px 0 8px; }
+.login-subtitle { color:#6B7280; font-size:16px; text-align:center; margin:0 auto 24px; }
+.login-lock { text-align:center; font-size:44px; margin-top:8px; margin-bottom:2px; }
+.login-demo { text-align:center; color:#5A5A5A; font-size:14px; margin-top:12px; }
+body:has(.login-marker) [data-testid="stForm"] {
+    background: rgba(255,255,255,0.97) !important;
+    border: 1px solid rgba(31,78,121,0.08) !important;
+    border-radius: 20px !important;
+    padding: 28px 34px 24px !important;
+    box-shadow: 0 12px 30px rgba(31,78,121,0.12), 0 2px 8px rgba(0,0,0,0.05) !important;
 }
-.login-lock {
-    font-size: 42px;
-    margin-bottom: 6px;
+body:has(.login-marker) [data-testid="stForm"] label {
+    color:#25364A !important; font-weight:650 !important; font-size:15px !important;
 }
-.login-title {
-    color: #102A43;
-    font-size: 38px;
-    font-weight: 800;
-    margin: 0 0 8px 0;
+body:has(.login-marker) [data-testid="stForm"] input {
+    background:#FFFFFF !important; border:1px solid #D8DEE7 !important;
+    border-radius:10px !important; min-height:46px !important;
 }
-.login-subtitle {
-    color: #6B7280;
-    font-size: 16px;
-    line-height: 1.5;
-    margin-bottom: 22px;
+body:has(.login-marker) [data-testid="stForm"] input:focus {
+    border:1.5px solid #2E86C1 !important; box-shadow:0 0 0 2px rgba(46,134,193,.12) !important;
 }
-.login-card {
-    background: rgba(255,255,255,0.92);
-    border-radius: 20px;
-    padding: 28px 34px 24px 34px;
-    box-shadow: 0 12px 30px rgba(31,78,121,0.15);
-    border: 1px solid rgba(31,78,121,0.08);
-    text-align: left;
+body:has(.login-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button {
+    background:#1F4E79 !important; color:white !important; border:0 !important;
+    border-radius:10px !important; min-height:48px !important; font-weight:700 !important;
+    box-shadow:none !important; width:100% !important;
 }
-.login-label {
-    font-weight: 700;
-    color: #263238;
-    margin: 10px 0 6px 0;
+body:has(.login-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover {
+    background:#173B5C !important; transform:none !important;
 }
-.login-help {
-    text-align: center;
-    color: #6B7280;
-    font-size: 13px;
-    margin-top: 12px;
-}
-.login-demo {
-    text-align: center;
-    color: #4B5563;
-    font-size: 13px;
-    margin-top: 12px;
-}
+body:has(.login-marker) [data-testid="stCheckbox"] label { color:#6B7280 !important; font-size:14px !important; }
+.login-divider { display:flex; align-items:center; gap:12px; color:#9CA3AF; font-size:13px; margin:18px 0 10px; }
+.login-divider:before,.login-divider:after { content:""; height:1px; background:#E2E6EB; flex:1; }
+.login-google { width:100%; box-sizing:border-box; border:1px solid #D8DEE7; border-radius:10px; background:#fff; color:#374151; text-align:center; padding:12px; font-size:15px; }
+.login-signup { text-align:center; color:#6B7280; font-size:14px; margin-top:16px; }
+.login-signup span { color:#1F4E79; font-weight:700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -193,80 +183,43 @@ def platform_card(name, icon, url):
 # LOGIN PAGE
 # ============================================================
 def login_page():
-    # ---------- Figma-style Login Page ----------
-    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+    # Marker lets the CSS style only the login screen.
+    st.markdown('<div class="login-marker"></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="login-lock">🔒</div>', unsafe_allow_html=True)
     st.markdown('<div class="login-title">Login</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="login-subtitle">Please log in to access the Fake Review Detection System.</div>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="login-subtitle">Please log in to access the Fake Review Detection System.</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="login-card">', unsafe_allow_html=True)
+    # The form creates the white rounded card seen in the Figma design.
+    with st.form("figma_login_form", clear_on_submit=False):
+        username = st.text_input("Username", placeholder="Username")
+        email = st.text_input("Email", placeholder="Enter your Email")
+        password = st.text_input("Password", type="password", placeholder="Password")
 
-    st.markdown('<div class="login-label">Username</div>', unsafe_allow_html=True)
-    username = st.text_input(
-        "Username",
-        placeholder="Username",
-        label_visibility="collapsed",
-        key="login_username"
-    )
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            remember = st.checkbox("Remember me")
+        with c2:
+            st.markdown('<div style="text-align:right;padding-top:7px;color:#2E86C1;font-size:14px;">Forgot password?</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="login-label">Email</div>', unsafe_allow_html=True)
-    email = st.text_input(
-        "Email",
-        placeholder="Enter your Email",
-        label_visibility="collapsed",
-        key="login_email"
-    )
+        login_clicked = st.form_submit_button("Login")
 
-    st.markdown('<div class="login-label">Password</div>', unsafe_allow_html=True)
-    password = st.text_input(
-        "Password",
-        type="password",
-        placeholder="Password",
-        label_visibility="collapsed",
-        key="login_password"
-    )
+        if login_clicked:
+            if username == VALID_USERNAME and password == VALID_PASSWORD:
+                st.session_state.logged_in = True
+                st.session_state.page = "Home"
+                st.rerun()
+            else:
+                st.error("❌ Invalid username or password. Please try again.")
 
-    remember_col, forgot_col = st.columns([1, 1])
-    with remember_col:
-        remember = st.checkbox("Remember me", key="remember_me")
-    with forgot_col:
-        if st.button("Forgot password?", key="forgot_password"):
-            st.info("Please contact the project administrator to reset the demo password.")
-
-    if st.button("Login", type="primary", use_container_width=True, key="login_button"):
-        # Email is displayed to match the Figma design.
-        # Current demo authentication remains username + password.
-        if username == VALID_USERNAME and password == VALID_PASSWORD:
-            st.session_state.logged_in = True
-            st.session_state.page = "Home"
-            st.rerun()
-        else:
-            st.error("❌ Invalid username or password. Please try again.")
+        st.markdown('<div class="login-divider"><span>OR CONTINUE WITH</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-google">🌐 &nbsp; Sign in with Google</div>', unsafe_allow_html=True)
+        st.markdown("<div class=\"login-signup\">Don't have an account? &nbsp;<span>Sign up</span></div>", unsafe_allow_html=True)
 
     st.markdown(
-        '<div style="text-align:center; color:#9CA3AF; margin:14px 0 10px;">OR CONTINUE WITH</div>',
-        unsafe_allow_html=True
+        f'<div class="login-demo">• &nbsp; Demo credentials: &nbsp; <b>{VALID_USERNAME}</b> / <b>{VALID_PASSWORD}</b></div>',
+        unsafe_allow_html=True,
     )
-
-    if st.button("🌐  Sign in with Google", use_container_width=True, key="google_login"):
-        st.info("Google sign-in is a UI placeholder. OAuth is not connected in the current project.")
-
-    signup_col1, signup_col2, signup_col3 = st.columns([1, 1.2, 1])
-    with signup_col2:
-        if st.button("Don't have an account?  Sign up", key="signup_button"):
-            st.info("Account registration is not connected in the current demo.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown(
-        f'<div class="login-demo">● &nbsp; Demo credentials: &nbsp; <b>{VALID_USERNAME}</b> / <b>{VALID_PASSWORD}</b></div>',
-        unsafe_allow_html=True
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
-
 
 
 # ============================================================
