@@ -83,6 +83,27 @@ body:has(.login-marker) [data-testid="stCheckbox"] label { color:#6B7280 !import
 .login-google { width:100%; box-sizing:border-box; border:1px solid #D8DEE7; border-radius:10px; background:#fff; color:#374151; text-align:center; padding:12px; font-size:15px; }
 .login-signup { text-align:center; color:#6B7280; font-size:14px; margin-top:16px; }
 .login-signup span { color:#1F4E79; font-weight:700; }
+
+/* ---------- Figma Create Account / Security Portal ---------- */
+.signup-portal { text-align:center; color:#17365D; font-size:12px; font-weight:800; letter-spacing:2px; margin-top:8px; }
+.signup-title { color:#17365D; font-size:38px; font-weight:800; text-align:center; margin:4px 0 8px; }
+.signup-subtitle { color:#6B7280; font-size:15px; text-align:center; line-height:1.5; margin:0 auto 24px; max-width:560px; }
+.security-note { text-align:center; color:#667085; font-size:12px; margin-top:16px; line-height:1.5; }
+.security-footer { text-align:center; color:#7A8494; font-size:11px; line-height:1.7; margin-top:18px; }
+.security-footer b { color:#526173; letter-spacing:.5px; }
+.strength-good { color:#27AE60; font-weight:700; }
+.strength-medium { color:#D68910; font-weight:700; }
+.strength-weak { color:#C0392B; font-weight:700; }
+body:has(.signup-marker) [data-testid="stForm"] { background:rgba(255,255,255,.97)!important; border:1px solid rgba(31,78,121,.08)!important; border-radius:20px!important; padding:28px 34px 24px!important; box-shadow:0 12px 30px rgba(31,78,121,.12),0 2px 8px rgba(0,0,0,.05)!important; }
+body:has(.signup-marker) [data-testid="stForm"] label { color:#25364A!important; font-weight:650!important; font-size:15px!important; }
+body:has(.signup-marker) [data-testid="stForm"] input { background:#fff!important; border:1px solid #D8DEE7!important; border-radius:10px!important; min-height:46px!important; }
+body:has(.signup-marker) [data-testid="stForm"] input:focus { border:1.5px solid #2E86C1!important; box-shadow:0 0 0 2px rgba(46,134,193,.12)!important; }
+body:has(.signup-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button { background:#1F4E79!important; color:white!important; border:0!important; border-radius:10px!important; min-height:48px!important; font-weight:700!important; width:100%!important; }
+body:has(.signup-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover { background:#173B5C!important; transform:none!important; }
+.signup-google { width:100%; box-sizing:border-box; border:1px solid #D8DEE7; border-radius:10px; background:#fff; color:#374151; text-align:center; padding:12px; font-size:15px; margin-bottom:12px; }
+.signup-divider { display:flex; align-items:center; gap:12px; color:#9CA3AF; font-size:13px; margin:18px 0 12px; }
+.signup-divider:before,.signup-divider:after { content:""; height:1px; background:#E2E6EB; flex:1; }
+.signup-login { text-align:center; color:#6B7280; font-size:14px; margin-top:14px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -93,6 +114,10 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "page" not in st.session_state:
     st.session_state.page = "Home"
+if "auth_screen" not in st.session_state:
+    st.session_state.auth_screen = "login"
+if "created_accounts" not in st.session_state:
+    st.session_state.created_accounts = {}
 
 # ---------- Google Sheets Logging (via Apps Script Web App) ----------
 def get_apps_script_url():
@@ -183,43 +208,70 @@ def platform_card(name, icon, url):
 # LOGIN PAGE
 # ============================================================
 def login_page():
-    # Marker lets the CSS style only the login screen.
     st.markdown('<div class="login-marker"></div>', unsafe_allow_html=True)
-
     st.markdown('<div class="login-lock">🔒</div>', unsafe_allow_html=True)
     st.markdown('<div class="login-title">Login</div>', unsafe_allow_html=True)
     st.markdown('<div class="login-subtitle">Please log in to access the Fake Review Detection System.</div>', unsafe_allow_html=True)
-
-    # The form creates the white rounded card seen in the Figma design.
     with st.form("figma_login_form", clear_on_submit=False):
-        username = st.text_input("Username", placeholder="Username")
-        email = st.text_input("Email", placeholder="Enter your Email")
-        password = st.text_input("Password", type="password", placeholder="Password")
+        username=st.text_input("Username",placeholder="Username")
+        email=st.text_input("Email",placeholder="Enter your Email")
+        password=st.text_input("Password",type="password",placeholder="Password")
+        c1,c2=st.columns([1,1])
+        with c1: st.checkbox("Remember me")
+        with c2: st.markdown('<div style="text-align:right;padding-top:7px;color:#2E86C1;font-size:14px;">Forgot password?</div>',unsafe_allow_html=True)
+        clicked=st.form_submit_button("Login")
+        if clicked:
+            ok=username==VALID_USERNAME and password==VALID_PASSWORD
+            if username in st.session_state.created_accounts: ok=password==st.session_state.created_accounts[username]["password"]
+            if ok:
+                st.session_state.logged_in=True; st.session_state.page="Home"; st.rerun()
+            else: st.error("❌ Invalid username or password. Please try again.")
+    st.markdown('<div class="login-divider"><span>OR CONTINUE WITH</span></div>',unsafe_allow_html=True)
+    st.markdown('<div class="login-google">🌐 &nbsp; Sign in with Google</div>',unsafe_allow_html=True)
+    st.markdown('<div class="login-signup">Don\'t have an account?</div>', unsafe_allow_html=True)
+    if st.button("Sign up",key="open_signup"):
+        st.session_state.auth_screen="signup"; st.rerun()
+    st.markdown(f'<div class="login-demo">• &nbsp; Demo credentials: &nbsp; <b>{VALID_USERNAME}</b> / <b>{VALID_PASSWORD}</b></div>',unsafe_allow_html=True)
 
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            remember = st.checkbox("Remember me")
-        with c2:
-            st.markdown('<div style="text-align:right;padding-top:7px;color:#2E86C1;font-size:14px;">Forgot password?</div>', unsafe_allow_html=True)
 
-        login_clicked = st.form_submit_button("Login")
+def password_strength(password):
+    score=sum([len(password)>=8,bool(re.search(r'[A-Z]',password)),bool(re.search(r'[a-z]',password)),bool(re.search(r'\d',password)),bool(re.search(r'[^A-Za-z0-9]',password))])
+    return ("Good","strength-good") if score>=4 else (("Medium","strength-medium") if score>=2 else ("Weak","strength-weak"))
 
-        if login_clicked:
-            if username == VALID_USERNAME and password == VALID_PASSWORD:
-                st.session_state.logged_in = True
-                st.session_state.page = "Home"
-                st.rerun()
+
+def create_account_page():
+    st.markdown('<div class="signup-marker"></div>',unsafe_allow_html=True)
+    st.markdown('<div class="signup-portal">SECURITY PORTAL</div>',unsafe_allow_html=True)
+    st.markdown('<div class="signup-title">Create Account</div>',unsafe_allow_html=True)
+    st.markdown('<div class="signup-subtitle">Register to access the Fake Review Detection &amp; Trust<br>Analytics System.</div>',unsafe_allow_html=True)
+    st.markdown('<div class="signup-google">🌐 &nbsp; Sign up with Google</div>',unsafe_allow_html=True)
+    st.markdown('<div class="signup-divider"><span>OR REGISTER WITH EMAIL</span></div>',unsafe_allow_html=True)
+    with st.form("create_account_form",clear_on_submit=False):
+        full_name=st.text_input("Full Name",placeholder="e.g. Alex Morgan")
+        work_email=st.text_input("Work Email",placeholder="alex@company.com")
+        password=st.text_input("Password",type="password",placeholder="••••••••••••")
+        if password:
+            strength,cls=password_strength(password)
+            st.markdown(f'<div style="margin-top:-8px;margin-bottom:12px;font-size:13px;">Security Strength: <span class="{cls}">{strength}</span></div>',unsafe_allow_html=True)
+        confirm=st.text_input("Confirm Password",type="password",placeholder="••••••••••••")
+        agree=st.checkbox("I agree to the Terms of Verification and Privacy Protocol.")
+        clicked=st.form_submit_button("Create Account")
+        if clicked:
+            if not full_name.strip(): st.error("Please enter your full name.")
+            elif not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$",work_email.strip()): st.error("Please enter a valid work email.")
+            elif len(password)<8: st.error("Password must contain at least 8 characters.")
+            elif password!=confirm: st.error("Passwords do not match.")
+            elif not agree: st.error("Please agree to the Terms of Verification and Privacy Protocol.")
             else:
-                st.error("❌ Invalid username or password. Please try again.")
-
-        st.markdown('<div class="login-divider"><span>OR CONTINUE WITH</span></div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-google">🌐 &nbsp; Sign in with Google</div>', unsafe_allow_html=True)
-        st.markdown("<div class=\"login-signup\">Don't have an account? &nbsp;<span>Sign up</span></div>", unsafe_allow_html=True)
-
-    st.markdown(
-        f'<div class="login-demo">• &nbsp; Demo credentials: &nbsp; <b>{VALID_USERNAME}</b> / <b>{VALID_PASSWORD}</b></div>',
-        unsafe_allow_html=True,
-    )
+                username=work_email.split("@")[0].strip().lower()
+                st.session_state.created_accounts[username]={"full_name":full_name.strip(),"email":work_email.strip(),"password":password}
+                st.session_state.auth_screen="login"; st.success(f"Account created successfully. Your username is: {username}"); st.rerun()
+    st.markdown('<div class="security-note">🔐 End-to-End Cryptographic Ledger: Audit telemetry enabled<br>on this account registration.</div>',unsafe_allow_html=True)
+    st.markdown('<div class="signup-login">Already have an account?</div>',unsafe_allow_html=True)
+    if st.button("Log in",key="back_to_login"):
+        st.session_state.auth_screen="login"; st.rerun()
+    footer="""<div class="security-footer"><b>SOC-2 TYPE II CERTIFIED &amp; ISO-27001 COMPLIANT</b><br>© 2025 Veritas Shield Threat Intelligence. Cryptographically Secured.<br><b>Privacy Protocol</b> &nbsp;&nbsp; <b>Terms of Verification</b> &nbsp;&nbsp; <b>Audit Telemetry</b> &nbsp;&nbsp; <b>Security Architecture</b></div>"""
+    st.markdown(footer,unsafe_allow_html=True)
 
 
 # ============================================================
@@ -513,7 +565,10 @@ def dashboard_page():
 # MAIN APP FLOW
 # ============================================================
 if not st.session_state.logged_in:
-    login_page()
+    if st.session_state.auth_screen == "signup":
+        create_account_page()
+    else:
+        login_page()
 else:
     st.sidebar.title("📂 Navigation")
     pages = ["Home", "Review Checker", "Batch Checker", "Insights", "Dashboard"]
