@@ -46,6 +46,53 @@ div.stButton > button {
 }
 div.stButton > button:hover { transform: translateY(-2px); }
 .stTextArea textarea, .stTextInput input { border-radius: 10px !important; box-shadow: inset 2px 2px 6px rgba(0,0,0,0.08); }
+
+.login-wrapper {
+    max-width: 620px;
+    margin: 20px auto 0 auto;
+    text-align: center;
+}
+.login-lock {
+    font-size: 42px;
+    margin-bottom: 6px;
+}
+.login-title {
+    color: #102A43;
+    font-size: 38px;
+    font-weight: 800;
+    margin: 0 0 8px 0;
+}
+.login-subtitle {
+    color: #6B7280;
+    font-size: 16px;
+    line-height: 1.5;
+    margin-bottom: 22px;
+}
+.login-card {
+    background: rgba(255,255,255,0.92);
+    border-radius: 20px;
+    padding: 28px 34px 24px 34px;
+    box-shadow: 0 12px 30px rgba(31,78,121,0.15);
+    border: 1px solid rgba(31,78,121,0.08);
+    text-align: left;
+}
+.login-label {
+    font-weight: 700;
+    color: #263238;
+    margin: 10px 0 6px 0;
+}
+.login-help {
+    text-align: center;
+    color: #6B7280;
+    font-size: 13px;
+    margin-top: 12px;
+}
+.login-demo {
+    text-align: center;
+    color: #4B5563;
+    font-size: 13px;
+    margin-top: 12px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -146,22 +193,80 @@ def platform_card(name, icon, url):
 # LOGIN PAGE
 # ============================================================
 def login_page():
-    st.markdown('<h1 class="hero-title">🔐 Login</h1>', unsafe_allow_html=True)
-    st.write("Please log in to access the Fake Review Detection System.")
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login", type="primary"):
+    # ---------- Figma-style Login Page ----------
+    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+
+    st.markdown('<div class="login-lock">🔒</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-title">Login</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="login-subtitle">Please log in to access the Fake Review Detection System.</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown('<div class="login-card">', unsafe_allow_html=True)
+
+    st.markdown('<div class="login-label">Username</div>', unsafe_allow_html=True)
+    username = st.text_input(
+        "Username",
+        placeholder="Username",
+        label_visibility="collapsed",
+        key="login_username"
+    )
+
+    st.markdown('<div class="login-label">Email</div>', unsafe_allow_html=True)
+    email = st.text_input(
+        "Email",
+        placeholder="Enter your Email",
+        label_visibility="collapsed",
+        key="login_email"
+    )
+
+    st.markdown('<div class="login-label">Password</div>', unsafe_allow_html=True)
+    password = st.text_input(
+        "Password",
+        type="password",
+        placeholder="Password",
+        label_visibility="collapsed",
+        key="login_password"
+    )
+
+    remember_col, forgot_col = st.columns([1, 1])
+    with remember_col:
+        remember = st.checkbox("Remember me", key="remember_me")
+    with forgot_col:
+        if st.button("Forgot password?", key="forgot_password"):
+            st.info("Please contact the project administrator to reset the demo password.")
+
+    if st.button("Login", type="primary", use_container_width=True, key="login_button"):
+        # Email is displayed to match the Figma design.
+        # Current demo authentication remains username + password.
         if username == VALID_USERNAME and password == VALID_PASSWORD:
             st.session_state.logged_in = True
             st.session_state.page = "Home"
             st.rerun()
         else:
             st.error("❌ Invalid username or password. Please try again.")
+
+    st.markdown(
+        '<div style="text-align:center; color:#9CA3AF; margin:14px 0 10px;">OR CONTINUE WITH</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.button("🌐  Sign in with Google", use_container_width=True, key="google_login"):
+        st.info("Google sign-in is a UI placeholder. OAuth is not connected in the current project.")
+
+    signup_col1, signup_col2, signup_col3 = st.columns([1, 1.2, 1])
+    with signup_col2:
+        if st.button("Don't have an account?  Sign up", key="signup_button"):
+            st.info("Account registration is not connected in the current demo.")
+
     st.markdown('</div>', unsafe_allow_html=True)
-    with st.expander("ℹ️ Demo credentials"):
-        st.write(f"**Username:** `{VALID_USERNAME}`")
-        st.write(f"**Password:** `{VALID_PASSWORD}`")
+    st.markdown(
+        f'<div class="login-demo">● &nbsp; Demo credentials: &nbsp; <b>{VALID_USERNAME}</b> / <b>{VALID_PASSWORD}</b></div>',
+        unsafe_allow_html=True
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 # ============================================================
