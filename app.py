@@ -18,7 +18,7 @@ st.set_page_config(
 # ---------- Global 3D / Attractive Styling ----------
 st.markdown("""
 <style>
-.stApp { background: #EAF1F8; }
+.stApp { background: linear-gradient(135deg, #f0f4f8 0%, #d9e6f5 100%); }
 .platform-card {
     border-radius: 16px; padding: 22px 10px; text-align: center;
     background: linear-gradient(145deg, #ffffff, #eef2f7);
@@ -46,81 +46,38 @@ div.stButton > button {
 }
 div.stButton > button:hover { transform: translateY(-2px); }
 .stTextArea textarea, .stTextInput input { border-radius: 10px !important; box-shadow: inset 2px 2px 6px rgba(0,0,0,0.08); }
+.logo-box {
+    width: 70px; height: 70px; border-radius: 18px;
+    background: linear-gradient(145deg, #ffffff, #eef2f7);
+    box-shadow: 4px 4px 12px rgba(0,0,0,0.1), -3px -3px 8px rgba(255,255,255,0.8);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; margin: 0 auto 14px auto;
+}
+.hint-box {
+    background: #EAF1F8; border-radius: 10px; padding: 12px 14px;
+    font-size: 12.5px; color: #5A5A5A; margin-top: 10px;
+}
 
-/* ---------- Figma Login Page ---------- */
-.login-title { color:#17365D; font-size:42px; font-weight:800; text-align:center; margin:4px 0 8px; }
-.login-subtitle { color:#6B7280; font-size:16px; text-align:center; margin:0 auto 24px; }
-.login-lock { text-align:center; font-size:44px; margin-top:8px; margin-bottom:2px; }
-.login-demo { text-align:center; color:#5A5A5A; font-size:14px; margin-top:12px; }
-body:has(.login-marker) [data-testid="stForm"] {
-    background: rgba(255,255,255,0.97) !important;
-    border: 1px solid rgba(31,78,121,0.08) !important;
-    border-radius: 20px !important;
-    padding: 28px 34px 24px !important;
-    box-shadow: 0 12px 30px rgba(31,78,121,0.12), 0 2px 8px rgba(0,0,0,0.05) !important;
+/* ---------- Sidebar styled like the Figma design ---------- */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #1F4E79, #163a5c);
 }
-body:has(.login-marker) [data-testid="stForm"] label {
-    color:#25364A !important; font-weight:650 !important; font-size:15px !important;
+[data-testid="stSidebar"] * {
+    color: #FFFFFF !important;
 }
-body:has(.login-marker) [data-testid="stForm"] input {
-    background:#FFFFFF !important; border:1px solid #D8DEE7 !important;
-    border-radius:10px !important; min-height:46px !important;
+[data-testid="stSidebar"] .stRadio label {
+    font-weight: 600;
+    padding: 6px 4px;
 }
-body:has(.login-marker) [data-testid="stForm"] input:focus {
-    border:1.5px solid #2E86C1 !important; box-shadow:0 0 0 2px rgba(46,134,193,.12) !important;
+[data-testid="stSidebar"] hr {
+    border-color: rgba(255,255,255,0.2);
 }
-body:has(.login-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button {
-    background:#1F4E79 !important; color:white !important; border:0 !important;
-    border-radius:10px !important; min-height:48px !important; font-weight:700 !important;
-    box-shadow:none !important; width:100% !important;
+[data-testid="stSidebar"] div.stButton > button {
+    background: rgba(255,255,255,0.08);
+    color: #ffb3b3 !important;
+    border: 1px solid rgba(255,255,255,0.25);
+    box-shadow: none;
 }
-body:has(.login-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover {
-    background:#173B5C !important; transform:none !important;
-}
-body:has(.login-marker) [data-testid="stCheckbox"] label { color:#6B7280 !important; font-size:14px !important; }
-.login-divider { display:flex; align-items:center; gap:12px; color:#9CA3AF; font-size:13px; margin:18px 0 10px; }
-.login-divider:before,.login-divider:after { content:""; height:1px; background:#E2E6EB; flex:1; }
-.login-google { width:100%; box-sizing:border-box; border:1px solid #D8DEE7; border-radius:10px; background:#fff; color:#374151; text-align:center; padding:12px; font-size:15px; }
-.login-signup { text-align:center; color:#6B7280; font-size:14px; margin-top:16px; }
-.login-signup span { color:#1F4E79; font-weight:700; }
-
-/* ---------- Figma Create Account / Security Portal ---------- */
-.signup-portal { text-align:center; color:#17365D; font-size:12px; font-weight:800; letter-spacing:2px; margin-top:8px; }
-.signup-title { color:#17365D; font-size:38px; font-weight:800; text-align:center; margin:4px 0 8px; }
-.signup-subtitle { color:#6B7280; font-size:15px; text-align:center; line-height:1.5; margin:0 auto 24px; max-width:560px; }
-.security-note { text-align:center; color:#667085; font-size:12px; margin-top:16px; line-height:1.5; }
-.security-footer { text-align:center; color:#7A8494; font-size:11px; line-height:1.7; margin-top:18px; }
-.security-footer b { color:#526173; letter-spacing:.5px; }
-.strength-good { color:#27AE60; font-weight:700; }
-.strength-medium { color:#D68910; font-weight:700; }
-.strength-weak { color:#C0392B; font-weight:700; }
-body:has(.signup-marker) [data-testid="stForm"] { background:rgba(255,255,255,.97)!important; border:1px solid rgba(31,78,121,.08)!important; border-radius:20px!important; padding:28px 34px 24px!important; box-shadow:0 12px 30px rgba(31,78,121,.12),0 2px 8px rgba(0,0,0,.05)!important; }
-body:has(.signup-marker) [data-testid="stForm"] label { color:#25364A!important; font-weight:650!important; font-size:15px!important; }
-body:has(.signup-marker) [data-testid="stForm"] input { background:#fff!important; border:1px solid #D8DEE7!important; border-radius:10px!important; min-height:46px!important; }
-body:has(.signup-marker) [data-testid="stForm"] input:focus { border:1.5px solid #2E86C1!important; box-shadow:0 0 0 2px rgba(46,134,193,.12)!important; }
-body:has(.signup-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button { background:#1F4E79!important; color:white!important; border:0!important; border-radius:10px!important; min-height:48px!important; font-weight:700!important; width:100%!important; }
-body:has(.signup-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover { background:#173B5C!important; transform:none!important; }
-.signup-google { width:100%; box-sizing:border-box; border:1px solid #D8DEE7; border-radius:10px; background:#fff; color:#374151; text-align:center; padding:12px; font-size:15px; margin-bottom:12px; }
-.signup-divider { display:flex; align-items:center; gap:12px; color:#9CA3AF; font-size:13px; margin:18px 0 12px; }
-.signup-divider:before,.signup-divider:after { content:""; height:1px; background:#E2E6EB; flex:1; }
-.signup-login { text-align:center; color:#6B7280; font-size:14px; margin-top:14px; }
-
-/* ---------- Figma Credential Recovery / Reset Password ---------- */
-.recovery-marker { text-align:center; }
-.recovery-portal { text-align:center; color:#17365D; font-size:12px; font-weight:800; letter-spacing:2px; margin-top:8px; }
-.recovery-title { color:#17365D; font-size:38px; font-weight:800; text-align:center; margin:4px 0 8px; }
-.recovery-subtitle { color:#6B7280; font-size:15px; text-align:center; line-height:1.5; margin:0 auto 24px; max-width:560px; }
-.recovery-note { text-align:center; color:#667085; font-size:12px; margin-top:16px; line-height:1.5; }
-.recovery-footer { text-align:center; color:#7A8494; font-size:11px; line-height:1.7; margin-top:18px; }
-.recovery-footer b { color:#526173; letter-spacing:.5px; }
-.recovery-security { text-align:center; color:#526173; font-size:12px; font-weight:800; letter-spacing:.5px; margin-top:16px; }
-.recovery-node { text-align:center; color:#7A8494; font-size:11px; margin-top:10px; }
-body:has(.recovery-marker) [data-testid="stForm"] { background:rgba(255,255,255,.97)!important; border:1px solid rgba(31,78,121,.08)!important; border-radius:20px!important; padding:28px 34px 24px!important; box-shadow:0 12px 30px rgba(31,78,121,.12),0 2px 8px rgba(0,0,0,.05)!important; }
-body:has(.recovery-marker) [data-testid="stForm"] label { color:#25364A!important; font-weight:650!important; font-size:15px!important; }
-body:has(.recovery-marker) [data-testid="stForm"] input { background:#fff!important; border:1px solid #D8DEE7!important; border-radius:10px!important; min-height:46px!important; }
-body:has(.recovery-marker) [data-testid="stForm"] input:focus { border:1.5px solid #2E86C1!important; box-shadow:0 0 0 2px rgba(46,134,193,.12)!important; }
-body:has(.recovery-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button { background:#1F4E79!important; color:white!important; border:0!important; border-radius:10px!important; min-height:48px!important; font-weight:700!important; width:100%!important; }
-body:has(.recovery-marker) [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover { background:#173B5C!important; transform:none!important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -131,10 +88,6 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "page" not in st.session_state:
     st.session_state.page = "Home"
-if "auth_screen" not in st.session_state:
-    st.session_state.auth_screen = "login"
-if "created_accounts" not in st.session_state:
-    st.session_state.created_accounts = {}
 
 # ---------- Google Sheets Logging (via Apps Script Web App) ----------
 def get_apps_script_url():
@@ -225,95 +178,37 @@ def platform_card(name, icon, url):
 # LOGIN PAGE
 # ============================================================
 def login_page():
-    st.markdown('<div class="login-marker"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-lock">🔒</div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-title">Login</div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-subtitle">Please log in to access the Fake Review Detection System.</div>', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown('<div class="logo-box">🕵️</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<h2 class="hero-title" style="text-align:center; font-size:26px;">Fake Review Detector</h2>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<p style="text-align:center; color:#5A5A5A; font-size:13.5px; margin-bottom:20px;">'
+            'Enter your credentials to access the<br>Fake Review Detection System.</p>',
+            unsafe_allow_html=True,
+        )
 
-    with st.form("figma_login_form", clear_on_submit=False):
-        username = st.text_input("Username", placeholder="Username")
-        email = st.text_input("Email", placeholder="Enter your Email")
-        password = st.text_input("Password", type="password", placeholder="Password")
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        username = st.text_input("👤 Username", placeholder="Enter your username")
+        password = st.text_input("🔒 Password", type="password", placeholder="Enter your password")
 
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.checkbox("Remember me")
-        with c2:
-            forgot_clicked = st.form_submit_button("Forgot password?")
-
-        clicked = st.form_submit_button("Login")
-
-        if forgot_clicked:
-            st.session_state.auth_screen = "recovery"
-            st.rerun()
-
-        if clicked:
-            ok = username == VALID_USERNAME and password == VALID_PASSWORD
-            if username in st.session_state.created_accounts:
-                ok = password == st.session_state.created_accounts[username]["password"]
-            if ok:
+        if st.button("LOGIN  →", type="primary", use_container_width=True):
+            if username == VALID_USERNAME and password == VALID_PASSWORD:
                 st.session_state.logged_in = True
                 st.session_state.page = "Home"
                 st.rerun()
             else:
                 st.error("❌ Invalid username or password. Please try again.")
 
-    st.markdown('<div class="login-divider"><span>OR CONTINUE WITH</span></div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-google">🌐 &nbsp; Sign in with Google</div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-signup">Don\'t have an account?</div>', unsafe_allow_html=True)
-    if st.button("Sign up", key="open_signup"):
-        st.session_state.auth_screen = "signup"
-        st.rerun()
-    st.markdown(f'<div class="login-demo">• &nbsp; Demo credentials: &nbsp; <b>{VALID_USERNAME}</b> / <b>{VALID_PASSWORD}</b></div>', unsafe_allow_html=True)
-
-
-# ============================================================
-# CREDENTIAL RECOVERY / RESET PASSWORD PAGE
-# ============================================================
-def recovery_page():
-    st.markdown('<div class="recovery-marker"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="recovery-portal">SECURITY PORTAL</div>', unsafe_allow_html=True)
-    st.markdown('<div class="recovery-title">CREDENTIAL RECOVERY</div>', unsafe_allow_html=True)
-    st.markdown('<div class="recovery-subtitle"><b>Reset Password</b><br>Enter your registered email address and we\'ll send you<br>verification instructions to reset your account password.</div>', unsafe_allow_html=True)
-
-    with st.form("recovery_form", clear_on_submit=False):
-        email = st.text_input(
-            "Email Address *",
-            placeholder="Enter your registered email (e.g. name@company.com)"
-        )
         st.markdown(
-            '<div class="recovery-note">Recovery links remain active for precisely 15 minutes.</div>',
-            unsafe_allow_html=True
+            f'<div class="hint-box">ℹ️ <b>Demo credentials</b> — '
+            f'Username: <b>{VALID_USERNAME}</b> &nbsp;|&nbsp; Password: <b>{VALID_PASSWORD}</b></div>',
+            unsafe_allow_html=True,
         )
-        send_clicked = st.form_submit_button("Send Reset Instructions")
-
-        if send_clicked:
-            email_clean = email.strip().lower()
-            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_clean):
-                st.error("Please enter a valid registered email address.")
-            else:
-                st.success("✅ Reset instructions have been requested for this email address.")
-                st.info("For the live password-reset email, we will connect this page to the authentication service next.")
-
-    st.markdown(
-        '<div class="recovery-note"><b>Need immediate access?</b> Contact system administrator<br>at <b>security@veritas-shield.io</b></div>',
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        '<div class="recovery-security">🔒 256-BIT SSL SAFEGUARDED &nbsp;&nbsp; | &nbsp;&nbsp; SOC2 Type II</div>',
-        unsafe_allow_html=True
-    )
-
-    if st.button("⬅️ Back to Login", key="recovery_back_login"):
-        st.session_state.auth_screen = "login"
-        st.rerun()
-
-    st.markdown(
-        '<div class="recovery-node">Verified Identity Node #804-F</div>',
-        unsafe_allow_html=True
-    )
-    footer = """<div class="recovery-footer">© 2025 Veritas Shield Threat Intelligence. Cryptographically Secured.<br><b>Privacy Protocol</b> &nbsp;&nbsp; <b>Terms of Verification</b> &nbsp;&nbsp; <b>Audit Telemetry</b> &nbsp;&nbsp; <b>Security Architecture</b></div>"""
-    st.markdown(footer, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ============================================================
@@ -607,12 +502,7 @@ def dashboard_page():
 # MAIN APP FLOW
 # ============================================================
 if not st.session_state.logged_in:
-    if st.session_state.auth_screen == "signup":
-        create_account_page()
-    elif st.session_state.auth_screen == "recovery":
-        recovery_page()
-    else:
-        login_page()
+    login_page()
 else:
     st.sidebar.title("📂 Navigation")
     pages = ["Home", "Review Checker", "Batch Checker", "Insights", "Dashboard"]
