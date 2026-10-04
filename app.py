@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 import requests
-from datetime import datetime
 
 # ---------- Page Setup ----------
 st.set_page_config(
@@ -183,7 +182,7 @@ def platform_card(name, icon, url):
 
 
 # ============================================================
-# LOGIN PAGE
+# LOGIN PAGE (Google Sign-In + Demo Admin fallback)
 # ============================================================
 def google_auth_available():
     """Check whether [auth] is configured in secrets.toml."""
