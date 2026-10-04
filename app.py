@@ -101,10 +101,16 @@ def log_to_sheet(review, prediction, confidence):
     url = get_apps_script_url()
     if not url:
         return
+    user_email = st.session_state.get("user_email", "unknown")
     try:
         requests.post(
             url,
-            json={"review": review, "prediction": prediction, "confidence": confidence},
+            json={
+                "review": review,
+                "prediction": prediction,
+                "confidence": confidence,
+                "user": user_email,
+            },
             timeout=5,
         )
     except Exception:
@@ -120,8 +126,10 @@ def get_dashboard_data():
         resp = requests.get(url, timeout=8)
         rows = resp.json()
         if not rows or len(rows) < 2:
-            return pd.DataFrame(columns=["timestamp", "review", "prediction", "confidence"])
-        df = pd.DataFrame(rows[1:], columns=["timestamp", "review", "prediction", "confidence"])
+            return pd.DataFrame(columns=["timestamp", "review", "prediction", "confidence", "user"])
+        header = rows[0]
+        cols = ["timestamp", "review", "prediction", "confidence", "user"][:len(header)]
+        df = pd.DataFrame(rows[1:], columns=cols)
         return df
     except Exception:
         return None
@@ -177,7 +185,23 @@ def platform_card(name, icon, url):
 # ============================================================
 # LOGIN PAGE
 # ============================================================
+def google_auth_available():
+    """Check whether [auth] is configured in secrets.toml."""
+    try:
+        return "auth" in st.secrets
+    except Exception:
+        return False
+
+
 def login_page():
+    # If Streamlit's native Google login already succeeded, pick it up here.
+    if google_auth_available() and getattr(st.user, "is_logged_in", False):
+        st.session_state.logged_in = True
+        st.session_state.user_name = st.user.name
+        st.session_state.user_email = st.user.email
+        st.session_state.page = "Home"
+        st.rerun()
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown('<div class="logo-box">🕵️</div>', unsafe_allow_html=True)
@@ -187,17 +211,34 @@ def login_page():
         )
         st.markdown(
             '<p style="text-align:center; color:#5A5A5A; font-size:13.5px; margin-bottom:20px;">'
-            'Enter your credentials to access the<br>Fake Review Detection System.</p>',
+            'Sign in to access the Fake Review Detection System.</p>',
             unsafe_allow_html=True,
         )
 
         st.markdown('<div class="info-box">', unsafe_allow_html=True)
+
+        # ---------------- Google Sign-In ----------------
+        if google_auth_available():
+            st.button("🔵 Sign in with Google", on_click=st.login, args=("google",),
+                      use_container_width=True, type="primary")
+            st.markdown(
+                '<p style="text-align:center; color:#5A5A5A; font-size:12px; margin:14px 0;">'
+                '— OR use the demo admin account below —</p>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("ℹ️ Google Sign-In is not configured yet. Use the demo admin account below.")
+
+        # ---------------- Demo Admin Login (fallback) ----------------
         username = st.text_input("👤 Username", placeholder="Enter your username")
         password = st.text_input("🔒 Password", type="password", placeholder="Enter your password")
 
-        if st.button("LOGIN  →", type="primary", use_container_width=True):
+        if st.button("LOGIN  →", type="secondary" if google_auth_available() else "primary",
+                     use_container_width=True):
             if username == VALID_USERNAME and password == VALID_PASSWORD:
                 st.session_state.logged_in = True
+                st.session_state.user_name = "Admin (Demo)"
+                st.session_state.user_email = "admin-demo@local"
                 st.session_state.page = "Home"
                 st.rerun()
             else:
@@ -504,6 +545,12 @@ def dashboard_page():
 if not st.session_state.logged_in:
     login_page()
 else:
+    st.sidebar.markdown(
+        f"👋 **{st.session_state.get('user_name', 'User')}**<br>"
+        f"<span style='font-size:12px; opacity:0.8;'>{st.session_state.get('user_email', '')}</span>",
+        unsafe_allow_html=True,
+    )
+    st.sidebar.markdown("---")
     st.sidebar.title("📂 Navigation")
     pages = ["Home", "Review Checker", "Batch Checker", "Insights", "Dashboard"]
     nav_choice = st.sidebar.radio("Go to:", pages, index=pages.index(st.session_state.page))
@@ -512,6 +559,8 @@ else:
     if st.sidebar.button("🚪 Logout"):
         st.session_state.logged_in = False
         st.session_state.page = "Home"
+        if google_auth_available() and getattr(st.user, "is_logged_in", False):
+            st.logout()
         st.rerun()
 
     if st.session_state.page == "Home":
