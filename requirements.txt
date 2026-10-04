@@ -6,3 +6,4 @@ numpy
 matplotlib
 wordcloud
 requests
+Authlib
