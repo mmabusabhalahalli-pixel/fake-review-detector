@@ -216,17 +216,8 @@ def login_page():
 
         st.markdown('<div class="info-box">', unsafe_allow_html=True)
 
-        # ---------------- Google Sign-In ----------------
-        if google_auth_available():
-            st.button("🔵 Sign in with Google", on_click=st.login, args=("google",),
-                      use_container_width=True, type="primary")
-            st.markdown(
-                '<p style="text-align:center; color:#5A5A5A; font-size:12px; margin:14px 0;">'
-                '— OR use the demo admin account below —</p>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.caption("ℹ️ Google Sign-In is not configured yet. Use the demo admin account below.")
+        # ---------------- Google Sign-In (temporarily disabled) ----------------
+        st.info("Google Sign-In is temporarily disabled. Use the demo account below.")
 
         # ---------------- Demo Admin Login (fallback) ----------------
         username = st.text_input("👤 Username", placeholder="Enter your username")
