@@ -192,6 +192,19 @@ def google_auth_available():
         return False
 
 
+def call_apps_script(payload):
+    """POST a JSON payload to the Apps Script backend and return the parsed response.
+    Returns None if not connected yet or on any network error — callers must handle that."""
+    url = get_apps_script_url()
+    if not url:
+        return None
+    try:
+        resp = requests.post(url, json=payload, timeout=8)
+        return resp.json()
+    except Exception:
+        return None
+
+
 def login_page():
     # If Streamlit's native Google login already succeeded, pick it up here.
     if google_auth_available() and getattr(st.user, "is_logged_in", False):
@@ -214,32 +227,100 @@ def login_page():
             unsafe_allow_html=True,
         )
 
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        tab_login, tab_signup, tab_forgot = st.tabs(["🔑 Login", "📝 Sign Up", "❓ Forgot Password"])
 
-        # ---------------- Google Sign-In (temporarily disabled) ----------------
-        st.info("Google Sign-In is temporarily disabled. Use the demo account below.")
+        # ================= LOGIN TAB =================
+        with tab_login:
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
 
-        # ---------------- Demo Admin Login (fallback) ----------------
-        username = st.text_input("👤 Username", placeholder="Enter your username")
-        password = st.text_input("🔒 Password", type="password", placeholder="Enter your password")
+            if not get_apps_script_url():
+                st.caption("ℹ️ Account database not connected yet — only the demo account works for now.")
 
-        if st.button("LOGIN  →", type="secondary" if google_auth_available() else "primary",
-                     use_container_width=True):
-            if username == VALID_USERNAME and password == VALID_PASSWORD:
-                st.session_state.logged_in = True
-                st.session_state.user_name = "Admin (Demo)"
-                st.session_state.user_email = "admin-demo@local"
-                st.session_state.page = "Home"
-                st.rerun()
-            else:
-                st.error("❌ Invalid username or password. Please try again.")
+            username = st.text_input("👤 Username", placeholder="Enter your username", key="login_user")
+            password = st.text_input("🔒 Password", type="password", placeholder="Enter your password", key="login_pass")
 
-        st.markdown(
-            f'<div class="hint-box">ℹ️ <b>Demo credentials</b> — '
-            f'Username: <b>{VALID_USERNAME}</b> &nbsp;|&nbsp; Password: <b>{VALID_PASSWORD}</b></div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
+            if st.button("LOGIN  →", type="primary", use_container_width=True):
+                if username == VALID_USERNAME and password == VALID_PASSWORD:
+                    st.session_state.logged_in = True
+                    st.session_state.user_name = "Admin (Demo)"
+                    st.session_state.user_email = "admin-demo@local"
+                    st.session_state.page = "Home"
+                    st.rerun()
+                else:
+                    result = call_apps_script({"type": "login", "username": username, "password": password})
+                    if result is None:
+                        st.error("❌ Invalid username or password. Please try again.")
+                    elif result.get("status") == "ok":
+                        st.session_state.logged_in = True
+                        st.session_state.user_name = username
+                        st.session_state.user_email = username
+                        st.session_state.page = "Home"
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid username or password. Please try again.")
+
+            st.markdown(
+                f'<div class="hint-box">ℹ️ <b>Demo credentials</b> — '
+                f'Username: <b>{VALID_USERNAME}</b> &nbsp;|&nbsp; Password: <b>{VALID_PASSWORD}</b></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # ================= SIGN UP TAB =================
+        with tab_signup:
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.write("Create a new account to access the system.")
+
+            new_user = st.text_input("👤 Choose a Username", key="signup_user")
+            new_pass = st.text_input("🔒 Choose a Password", type="password", key="signup_pass")
+            confirm_pass = st.text_input("🔒 Confirm Password", type="password", key="signup_confirm")
+
+            if st.button("CREATE ACCOUNT  →", type="primary", use_container_width=True):
+                if not new_user or not new_pass:
+                    st.warning("⚠️ Please fill in both a username and a password.")
+                elif new_pass != confirm_pass:
+                    st.error("❌ Passwords do not match.")
+                elif not get_apps_script_url():
+                    st.info("ℹ️ Account database is not connected yet. This will work once it's set up.")
+                else:
+                    result = call_apps_script({"type": "register", "username": new_user, "password": new_pass})
+                    if result is None:
+                        st.error("❌ Could not reach the account database. Try again later.")
+                    elif result.get("status") == "ok":
+                        st.success("✅ Account created! You can now log in from the Login tab.")
+                    elif result.get("status") == "exists":
+                        st.error("❌ That username is already taken. Please choose another.")
+                    else:
+                        st.error("❌ Something went wrong. Please try again.")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # ================= FORGOT PASSWORD TAB =================
+        with tab_forgot:
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.write("Enter your username and choose a new password.")
+
+            fp_user = st.text_input("👤 Username", key="forgot_user")
+            fp_new_pass = st.text_input("🔒 New Password", type="password", key="forgot_new_pass")
+            fp_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="forgot_confirm_pass")
+
+            if st.button("RESET PASSWORD  →", type="primary", use_container_width=True):
+                if not fp_user or not fp_new_pass:
+                    st.warning("⚠️ Please fill in your username and a new password.")
+                elif fp_new_pass != fp_confirm_pass:
+                    st.error("❌ Passwords do not match.")
+                elif not get_apps_script_url():
+                    st.info("ℹ️ Account database is not connected yet. This will work once it's set up.")
+                else:
+                    result = call_apps_script({"type": "reset_password", "username": fp_user, "password": fp_new_pass})
+                    if result is None:
+                        st.error("❌ Could not reach the account database. Try again later.")
+                    elif result.get("status") == "ok":
+                        st.success("✅ Password updated! You can now log in with your new password.")
+                    elif result.get("status") == "not_found":
+                        st.error("❌ No account found with that username.")
+                    else:
+                        st.error("❌ Something went wrong. Please try again.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ============================================================
