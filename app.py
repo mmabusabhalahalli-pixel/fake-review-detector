@@ -209,6 +209,8 @@ def login_page():
     # If Streamlit's native Google login already succeeded, pick it up here.
     if google_auth_available() and getattr(st.user, "is_logged_in", False):
         st.session_state.logged_in = True
+         st.session_state.user_name = "Admin (Demo)"
+         st.session_state.user_email = "admin-demo@local"
         st.session_state.user_name = st.user.name
         st.session_state.user_email = st.user.email
         st.session_state.page = "Home"
@@ -257,12 +259,7 @@ def login_page():
                     else:
                         st.error("❌ Invalid username or password. Please try again.")
 
-            st.markdown(
-                f'<div class="hint-box">ℹ️ <b>Demo credentials</b> — '
-                f'Username: <b>{VALID_USERNAME}</b> &nbsp;|&nbsp; Password: <b>{VALID_PASSWORD}</b></div>',
-                unsafe_allow_html=True,
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
+           
 
         # ================= SIGN UP TAB =================
         with tab_signup:
