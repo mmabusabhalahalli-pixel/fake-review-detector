@@ -258,6 +258,13 @@ def login_page():
                         st.rerun()
                     else:
                         st.error("❌ Invalid username or password. Please try again.")
+                         st.markdown(
+                f'<div class="hint-box">ℹ️ <b>Demo credentials</b> — '
+                f'Username: <b>{VALID_USERNAME}</b> &nbsp;|&nbsp; Password: <b>{VALID_PASSWORD}</b></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
 
            
 
