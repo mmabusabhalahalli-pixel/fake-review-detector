@@ -242,8 +242,6 @@ def login_page():
             if st.button("LOGIN  →", type="primary", use_container_width=True):
                 if username == VALID_USERNAME and password == VALID_PASSWORD:
                     st.session_state.logged_in = True
-                    st.session_state.user_name = "Admin (Demo)"
-                    st.session_state.user_email = "admin-demo@local"
                     st.session_state.page = "Home"
                     st.rerun()
                 else:
