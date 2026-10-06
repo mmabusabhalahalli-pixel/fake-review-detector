@@ -236,7 +236,7 @@ def login_page():
             if not get_apps_script_url():
                 st.caption("ℹ️ Account database not connected yet — only the demo account works for now.")
 
-            username = st.text_input("👤 Username or Email", placeholder="Enter your username or email", key="login_user")
+            username = st.text_input("👤 Username", placeholder="Enter your username or email", key="login_user")
             password = st.text_input("🔒 Password", type="password", placeholder="Enter your password", key="login_pass")
 
             if st.button("LOGIN  →", type="primary", use_container_width=True):
@@ -307,7 +307,7 @@ def login_page():
             st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.write("Enter your username and choose a new password.")
 
-            fp_user = st.text_input("👤 Username or Email", key="forgot_user")
+            fp_user = st.text_input("👤 Username", key="forgot_user")
             fp_new_pass = st.text_input("🔒 New Password", type="password", key="forgot_new_pass")
             fp_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="forgot_confirm_pass")
 
