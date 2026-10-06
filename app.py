@@ -79,6 +79,8 @@ div.stButton > button:hover { transform: translateY(-2px); }
 }
 </style>
 """, unsafe_allow_html=True)
+VALID_USERNAME = "admin"
+VALID_PASSWORD = "admin123"
 
 
 if "logged_in" not in st.session_state:
