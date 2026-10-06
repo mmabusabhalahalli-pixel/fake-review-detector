@@ -79,9 +79,9 @@ div.stButton > button:hover { transform: translateY(-2px); }
 }
 </style>
 """, unsafe_allow_html=True)
+
 VALID_USERNAME = "admin"
 VALID_PASSWORD = "admin123"
-
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -574,8 +574,23 @@ def dashboard_page():
             st.session_state.page = "Home"; st.rerun()
         return
 
-    if st.button("🔄 Refresh Data"):
-        st.cache_data.clear()
+    c_refresh, c_clear = st.columns([1, 1])
+    with c_refresh:
+        if st.button("🔄 Refresh Data"):
+            st.cache_data.clear()
+
+    with c_clear:
+        with st.popover("🗑️ Clear All Data"):
+            st.warning("⚠️ This will permanently delete all logged reviews. This cannot be undone.")
+            confirm = st.checkbox("Yes, I'm sure — delete everything")
+            if st.button("Confirm Delete", type="primary", disabled=not confirm):
+                result = call_apps_script({"type": "clear_logs"})
+                if result and result.get("status") == "ok":
+                    st.cache_data.clear()
+                    st.success("✅ All data cleared!")
+                    st.rerun()
+                else:
+                    st.error("❌ Could not clear data. Try again.")
 
     df = get_dashboard_data()
 
