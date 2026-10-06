@@ -80,8 +80,6 @@ div.stButton > button:hover { transform: translateY(-2px); }
 </style>
 """, unsafe_allow_html=True)
 
-VALID_USERNAME = "admin"
-VALID_PASSWORD = "admin123"
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -209,8 +207,6 @@ def login_page():
     # If Streamlit's native Google login already succeeded, pick it up here.
     if google_auth_available() and getattr(st.user, "is_logged_in", False):
         st.session_state.logged_in = True
-         st.session_state.user_name = "Admin (Demo)"
-         st.session_state.user_email = "admin-demo@local"
         st.session_state.user_name = st.user.name
         st.session_state.user_email = st.user.email
         st.session_state.page = "Home"
@@ -238,12 +234,14 @@ def login_page():
             if not get_apps_script_url():
                 st.caption("ℹ️ Account database not connected yet — only the demo account works for now.")
 
-            username = st.text_input("👤 Username", placeholder="Enter your username or email", key="login_user")
+            username = st.text_input("👤 Username or Email", placeholder="Enter your username or email", key="login_user")
             password = st.text_input("🔒 Password", type="password", placeholder="Enter your password", key="login_pass")
 
             if st.button("LOGIN  →", type="primary", use_container_width=True):
                 if username == VALID_USERNAME and password == VALID_PASSWORD:
                     st.session_state.logged_in = True
+                    st.session_state.user_name = "Admin (Demo)"
+                    st.session_state.user_email = "admin-demo@local"
                     st.session_state.page = "Home"
                     st.rerun()
                 else:
@@ -258,15 +256,13 @@ def login_page():
                         st.rerun()
                     else:
                         st.error("❌ Invalid username or password. Please try again.")
-                         st.markdown(
+
+            st.markdown(
                 f'<div class="hint-box">ℹ️ <b>Demo credentials</b> — '
                 f'Username: <b>{VALID_USERNAME}</b> &nbsp;|&nbsp; Password: <b>{VALID_PASSWORD}</b></div>',
                 unsafe_allow_html=True,
             )
             st.markdown('</div>', unsafe_allow_html=True)
-
-
-           
 
         # ================= SIGN UP TAB =================
         with tab_signup:
@@ -309,7 +305,7 @@ def login_page():
             st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.write("Enter your username and choose a new password.")
 
-            fp_user = st.text_input("👤 Username", key="forgot_user")
+            fp_user = st.text_input("👤 Username or Email", key="forgot_user")
             fp_new_pass = st.text_input("🔒 New Password", type="password", key="forgot_new_pass")
             fp_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="forgot_confirm_pass")
 
