@@ -236,7 +236,7 @@ def login_page():
             if not get_apps_script_url():
                 st.caption("ℹ️ Account database not connected yet — only the demo account works for now.")
 
-            username = st.text_input("👤 Username", placeholder="Enter your username", key="login_user")
+            username = st.text_input("👤 Username or Email", placeholder="Enter your username or email", key="login_user")
             password = st.text_input("🔒 Password", type="password", placeholder="Enter your password", key="login_pass")
 
             if st.button("LOGIN  →", type="primary", use_container_width=True):
@@ -272,26 +272,34 @@ def login_page():
             st.write("Create a new account to access the system.")
 
             new_user = st.text_input("👤 Choose a Username", key="signup_user")
+            new_email = st.text_input("📧 Email", placeholder="Enter your email", key="signup_email")
             new_pass = st.text_input("🔒 Choose a Password", type="password", key="signup_pass")
             confirm_pass = st.text_input("🔒 Confirm Password", type="password", key="signup_confirm")
 
             if st.button("CREATE ACCOUNT  →", type="primary", use_container_width=True):
-                if not new_user or not new_pass:
-                    st.warning("⚠️ Please fill in both a username and a password.")
+                if not new_user or not new_email or not new_pass or not confirm_pass:
+                    st.warning("⚠️ Please fill in all fields.")
                 elif new_pass != confirm_pass:
                     st.error("❌ Passwords do not match.")
                 elif not get_apps_script_url():
                     st.info("ℹ️ Account database is not connected yet. This will work once it's set up.")
                 else:
-                    result = call_apps_script({"type": "register", "username": new_user, "password": new_pass})
+                    result = call_apps_script({
+                        "type": "register",
+                        "username": new_user,
+                        "email": new_email,
+                        "password": new_pass,
+                    })
                     if result is None:
                         st.error("❌ Could not reach the account database. Try again later.")
                     elif result.get("status") == "ok":
-                        st.success("✅ Account created! You can now log in from the Login tab.")
-                    elif result.get("status") == "exists":
-                        st.error("❌ That username is already taken. Please choose another.")
+                        st.success("✅ Account created successfully! Please login.")
+                    elif result.get("status") == "username_exists":
+                        st.error("❌ Username already exists.")
+                    elif result.get("status") == "email_exists":
+                        st.error("❌ Email already exists.")
                     else:
-                        st.error("❌ Something went wrong. Please try again.")
+                        st.error(result.get("message", "❌ Registration failed."))
             st.markdown('</div>', unsafe_allow_html=True)
 
         # ================= FORGOT PASSWORD TAB =================
@@ -299,7 +307,7 @@ def login_page():
             st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.write("Enter your username and choose a new password.")
 
-            fp_user = st.text_input("👤 Username", key="forgot_user")
+            fp_user = st.text_input("👤 Username or Email", key="forgot_user")
             fp_new_pass = st.text_input("🔒 New Password", type="password", key="forgot_new_pass")
             fp_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="forgot_confirm_pass")
 
