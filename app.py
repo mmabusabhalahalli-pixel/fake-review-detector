@@ -2,6 +2,8 @@ import streamlit as st
 import joblib
 import re
 import html
+import io
+import csv
 from collections import Counter
 import pandas as pd
 import numpy as np
@@ -195,11 +197,11 @@ def clean_text(text):
     return text
 
 def predict_review(review_text, model, vectorizer):
-    cleaned = clean_text(review_text)
-    vectorized = vectorizer.transform([cleaned])
-    prediction = model.predict(vectorized)[0]
-    probability = model.predict_proba(vectorized)[0]
-    confidence = max(probability) * 100
+    """Single-review prediction. Uses predict_many() so every page gives the SAME result."""
+    fake_prob, _ = predict_many([review_text], model, vectorizer)
+    fp = float(fake_prob[0])
+    prediction = 1 if fp >= 0.5 else 0
+    confidence = max(fp, 1 - fp) * 100
     label = "Fake (Computer Generated)" if prediction == 1 else "Real (Genuine)"
     return label, confidence, prediction
 
@@ -309,6 +311,68 @@ def predict_many(review_list, model, vectorizer):
     fake_col = list(model.classes_).index(1)
     fake_prob = probs[:, fake_col]
     return fake_prob, fake_prob >= 0.5
+
+
+def normalize_reviews(raw_list):
+    """Clean a list of reviews the SAME way for paste, CSV and TXT input.
+    Returns (clean_reviews, skipped_count)."""
+    out, skipped = [], 0
+    for r in raw_list:
+        s = "" if r is None else str(r)
+        s = s.replace("\u00a0", " ")
+        s = re.sub(r"\s+", " ", s).strip()
+        if not s or s.lower() in ("nan", "none", "null"):
+            skipped += 1
+            continue
+        out.append(s)
+    return out, skipped
+
+
+def read_review_file(up, key):
+    """Read an uploaded CSV/TXT the same way every time. Returns a DataFrame."""
+    raw = up.getvalue()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    is_txt = up.name.lower().endswith(".txt")
+    has_header = st.checkbox(
+        "My file has a header row (first row = column names)",
+        value=True, key=f"{key}_hdr", disabled=is_txt,
+        help="Untick this if the very first row of your file is already a review.",
+    )
+
+    clean_csv = False
+    if not is_txt:
+        try:
+            # A proper CSV has the same number of fields on every row.
+            # If rows have different counts, reviews contain unquoted commas
+            # and splitting on commas would CUT the reviews short.
+            rows = [r for r in csv.reader(io.StringIO(text)) if r]
+            clean_csv = len({len(r) for r in rows}) == 1
+        except Exception:
+            clean_csv = False
+
+        if clean_csv:
+            try:
+                df = pd.read_csv(io.StringIO(text), header=0 if has_header else None,
+                                 dtype=str, keep_default_na=False)
+                st.caption(f"📄 Rows read from file: **{len(df)}**"
+                           + (" (first row used as column names)" if has_header else ""))
+                return df
+            except Exception:
+                clean_csv = False
+
+        st.warning("⚠️ This file is not a clean CSV (reviews contain commas). "
+                   "Reading it as one full review per line instead, so nothing gets cut.")
+
+    lines = text.splitlines()
+    if has_header and not is_txt and lines:
+        lines = lines[1:]          # first line is the header
+    df = pd.DataFrame({"review": lines})
+    st.caption(f"📄 Lines read from file: **{len(df)}**")
+    return df
 
 
 def platform_card(name, icon, url):
@@ -642,7 +706,7 @@ def review_checker_page():
 # ============================================================
 # PRODUCT TRUST SCORE PAGE (new in Phase 1)
 # ============================================================
-def analyze_product(reviews, product_name, model, vectorizer):
+def analyze_product(reviews, product_name, model, vectorizer, skipped=0):
     fake_prob, is_fake = predict_many(reviews, model, vectorizer)
     flags_list = [find_red_flags(r) for r in reviews]
 
@@ -677,6 +741,8 @@ def analyze_product(reviews, product_name, model, vectorizer):
         unsafe_allow_html=True,
     )
     st.progress(trust / 100)
+    st.caption(f"🔢 Reviews analysed: **{len(reviews)}**"
+               + (f" · empty lines skipped: {skipped}" if skipped else ""))
 
     if total < 5:
         st.warning("⚠️ Only a few reviews were checked, so this score may not be reliable. Add 10+ reviews for a better result.")
@@ -748,26 +814,27 @@ def trust_score_page():
             placeholder="Battery lasts a full day, mic is average.\nBest product ever! Amazing! Buy now!!!\nStopped working after 3 weeks."
         )
         if st.button("🛡️ Calculate Trust Score", type="primary", key="trust_btn_paste"):
-            lines = [l.strip() for l in pasted.split("\n") if l.strip()]
+            lines, skipped = normalize_reviews(pasted.split("\n"))
             if not lines:
                 st.warning("⚠️ Please paste at least one review.")
             else:
-                analyze_product(lines, product_name, model, vectorizer)
+                analyze_product(lines, product_name, model, vectorizer, skipped)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
         st.markdown('<div class="info-box">', unsafe_allow_html=True)
-        up = st.file_uploader("Upload CSV file", type=["csv"], key="trust_csv")
+        up = st.file_uploader("Upload CSV or TXT file", type=["csv", "txt"], key="trust_csv")
         if up is not None:
-            df = pd.read_csv(up)
+            df = read_review_file(up, "trust")
             st.dataframe(df.head())
-            col_name = st.selectbox("Column with the review text:", df.columns, key="trust_col")
+            col_name = st.selectbox("Column with the review text:", df.columns,
+                                    format_func=str, key="trust_col")
             if st.button("🛡️ Calculate Trust Score", type="primary", key="trust_btn_csv"):
-                reviews = [r.strip() for r in df[col_name].astype(str).tolist() if r.strip() and r.strip().lower() != "nan"]
+                reviews, skipped = normalize_reviews(df[col_name].tolist())
                 if not reviews:
                     st.warning("⚠️ No review text found in that column.")
                 else:
-                    analyze_product(reviews, product_name, model, vectorizer)
+                    analyze_product(reviews, product_name, model, vectorizer, skipped)
         st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
@@ -827,28 +894,37 @@ def batch_checker_page():
         )
 
         if st.button("🔍 Check Pasted Reviews", type="primary"):
-            lines = [line.strip() for line in pasted_text.split("\n") if line.strip()]
+            lines, skipped = normalize_reviews(pasted_text.split("\n"))
             if not lines:
                 st.warning("⚠️ Please paste at least one review.")
             else:
                 result_df = run_batch_predictions(lines, model, vectorizer)
                 show_batch_results(result_df)
+                if skipped:
+                    st.caption(f"Empty lines skipped: {skipped}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
         st.markdown('<div class="info-box">', unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+        uploaded_file = st.file_uploader("Upload CSV or TXT file", type=["csv", "txt"])
 
         if uploaded_file is not None:
-            df = pd.read_csv(uploaded_file)
+            df = read_review_file(uploaded_file, "batch")
             st.write("Preview of uploaded file:")
             st.dataframe(df.head())
 
-            col_name = st.selectbox("Select the column that contains the review text:", df.columns)
+            col_name = st.selectbox("Select the column that contains the review text:",
+                                    df.columns, format_func=str)
 
             if st.button("🔍 Check All Reviews", type="primary"):
-                result_df = run_batch_predictions(df[col_name].astype(str).tolist(), model, vectorizer)
-                show_batch_results(result_df)
+                reviews, skipped = normalize_reviews(df[col_name].tolist())
+                if not reviews:
+                    st.warning("⚠️ No review text found in that column.")
+                else:
+                    result_df = run_batch_predictions(reviews, model, vectorizer)
+                    show_batch_results(result_df)
+                    if skipped:
+                        st.caption(f"Empty rows skipped: {skipped}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
