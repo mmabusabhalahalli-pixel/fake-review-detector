@@ -83,6 +83,26 @@ div.stButton > button:hover { transform: translateY(-2px); }
 VALID_USERNAME = "admin"
 VALID_PASSWORD = "admin123"
 
+# ---------- Validation helpers (security) ----------
+EMAIL_RE = re.compile(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+MIN_LEN = 8
+
+
+def validate_email(email):
+    return bool(EMAIL_RE.match(email.strip()))
+
+
+def password_problem(pw):
+    """Returns an error message, or None if the password is OK."""
+    if len(pw) < MIN_LEN:
+        return f"Password must be at least {MIN_LEN} characters."
+    if not re.search(r"[A-Za-z]", pw):
+        return "Password must contain at least one letter."
+    if not re.search(r"[0-9]", pw):
+        return "Password must contain at least one number."
+    return None
+
+
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "page" not in st.session_state:
@@ -288,11 +308,17 @@ def login_page():
             new_user = st.text_input("👤 Choose a Username", key="signup_user")
             new_email = st.text_input("📧 Email", placeholder="Enter your email", key="signup_email")
             new_pass = st.text_input("🔒 Choose a Password", type="password", key="signup_pass")
+            st.caption("Min 8 characters, with at least one letter and one number.")
             confirm_pass = st.text_input("🔒 Confirm Password", type="password", key="signup_confirm")
 
             if st.button("CREATE ACCOUNT  →", type="primary", use_container_width=True):
+                pw_err = password_problem(new_pass) if new_pass else None
                 if not new_user or not new_email or not new_pass or not confirm_pass:
                     st.warning("⚠️ Please fill in all fields.")
+                elif not validate_email(new_email):
+                    st.error("❌ Please enter a valid email (e.g. name@example.com).")
+                elif pw_err:
+                    st.error(f"❌ {pw_err}")
                 elif new_pass != confirm_pass:
                     st.error("❌ Passwords do not match.")
                 elif not get_apps_script_url():
@@ -300,8 +326,8 @@ def login_page():
                 else:
                     result = call_apps_script({
                         "type": "register",
-                        "username": new_user,
-                        "email": new_email,
+                        "username": new_user.strip(),
+                        "email": new_email.strip(),
                         "password": new_pass,
                     })
                     if result is None:
@@ -312,6 +338,10 @@ def login_page():
                         st.error("❌ Username already exists.")
                     elif result.get("status") == "email_exists":
                         st.error("❌ Email already exists.")
+                    elif result.get("status") == "invalid_email":
+                        st.error("❌ Invalid email format.")
+                    elif result.get("status") == "weak_password":
+                        st.error("❌ Password is too weak.")
                     else:
                         st.error(result.get("message", "❌ Registration failed."))
             st.markdown('</div>', unsafe_allow_html=True)
@@ -323,11 +353,15 @@ def login_page():
 
             fp_user = st.text_input("👤 Username or Email", key="forgot_user")
             fp_new_pass = st.text_input("🔒 New Password", type="password", key="forgot_new_pass")
+            st.caption("Min 8 characters, with at least one letter and one number.")
             fp_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="forgot_confirm_pass")
 
             if st.button("RESET PASSWORD  →", type="primary", use_container_width=True):
+                pw_err = password_problem(fp_new_pass) if fp_new_pass else None
                 if not fp_user or not fp_new_pass:
                     st.warning("⚠️ Please fill in your username and a new password.")
+                elif pw_err:
+                    st.error(f"❌ {pw_err}")
                 elif fp_new_pass != fp_confirm_pass:
                     st.error("❌ Passwords do not match.")
                 elif not get_apps_script_url():
@@ -340,6 +374,8 @@ def login_page():
                         st.success("✅ Password updated! You can now log in with your new password.")
                     elif result.get("status") == "not_found":
                         st.error("❌ No account found with that username.")
+                    elif result.get("status") == "weak_password":
+                        st.error("❌ Password is too weak.")
                     else:
                         st.error("❌ Something went wrong. Please try again.")
             st.markdown('</div>', unsafe_allow_html=True)
