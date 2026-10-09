@@ -408,6 +408,22 @@ def call_apps_script(payload):
         return None
 
 
+def get_admin_key():
+    """Secret key that proves to the backend that a request comes from this app's admin."""
+    try:
+        return st.secrets["ADMIN_KEY"]
+    except Exception:
+        return None
+
+
+def call_admin_script(payload):
+    """Same as call_apps_script but adds the secret ADMIN_KEY."""
+    key = get_admin_key()
+    if not key:
+        return {"status": "no_key"}
+    return call_apps_script({**payload, "admin_key": key})
+
+
 def login_page():
     # If Streamlit's native Google login already succeeded, pick it up here.
     if google_auth_available() and getattr(st.user, "is_logged_in", False):
@@ -467,8 +483,15 @@ def login_page():
                         st.session_state.role = result.get("role") or "user"
                         st.session_state.page = "Home"
                         st.rerun()
+                    elif result.get("status") == "locked":
+                        mins = result.get("minutes_left", 5)
+                        st.error(f"🔒 Too many wrong attempts. This account is locked for {mins} more minute(s).")
                     else:
-                        st.error("❌ Invalid username or password. Please try again.")
+                        left = result.get("attempts_left")
+                        msg = "❌ Invalid username or password."
+                        if left is not None:
+                            msg += f" {left} attempt(s) left before the account is locked."
+                        st.error(msg)
 
             st.markdown(
                 f'<div class="hint-box">ℹ️ <b>Demo credentials</b> — '
@@ -607,6 +630,7 @@ def home_page():
     ]
     if is_admin():
         quick_links.append(("📈 Dashboard", "Dashboard", False))
+        quick_links.append(("👥 Manage Users", "Manage Users", False))
 
     # Show the buttons in rows of 3 so labels never get squeezed.
     for start in range(0, len(quick_links), 3):
@@ -1055,11 +1079,13 @@ def dashboard_page():
             st.warning("⚠️ This will permanently delete all logged reviews. This cannot be undone.")
             confirm = st.checkbox("Yes, I'm sure — delete everything")
             if st.button("Confirm Delete", type="primary", disabled=not confirm):
-                result = call_apps_script({"type": "clear_logs"})
+                result = call_admin_script({"type": "clear_logs"})
                 if result and result.get("status") == "ok":
                     st.cache_data.clear()
                     st.success("✅ All data cleared!")
                     st.rerun()
+                elif result and result.get("status") in ("no_key", "unauthorized"):
+                    st.error("🔑 ADMIN_KEY is missing or does not match. Check Streamlit secrets and Code.gs.")
                 else:
                     st.error("❌ Could not clear data. Try again.")
 
@@ -1105,6 +1131,159 @@ def dashboard_page():
 
 
 # ============================================================
+# MANAGE USERS PAGE (admin only)
+# ============================================================
+ADMIN_ERRORS = {
+    "not_found": "❌ User not found.",
+    "weak_password": "❌ Password is too weak (min 8 characters, with a letter and a number).",
+    "unauthorized": "🔑 ADMIN_KEY does not match between Streamlit secrets and Code.gs.",
+    "no_key": "🔑 ADMIN_KEY is missing in Streamlit secrets.",
+    "last_admin": "❌ You cannot remove or demote the last admin.",
+    "invalid_role": "❌ Invalid role.",
+}
+
+
+def load_users():
+    st.session_state.users_data = call_admin_script({"type": "list_users"})
+
+
+def run_admin_action(payload, success_msg):
+    result = call_admin_script(payload)
+    if result is None:
+        st.error("❌ Could not reach the account database. Try again.")
+    elif result.get("status") == "ok":
+        st.session_state.um_flash = success_msg
+        load_users()
+        st.rerun()
+    else:
+        st.error(ADMIN_ERRORS.get(result.get("status"), "❌ Something went wrong."))
+
+
+def manage_users_page():
+    st.markdown('<h1 class="hero-title">👥 Manage Users</h1>', unsafe_allow_html=True)
+
+    def back_button(key):
+        if st.button("⬅️ Back to Home", key=key):
+            st.session_state.page = "Home"; st.rerun()
+
+    if not is_admin():
+        st.error("🚫 Access denied. This page is available to administrators only.")
+        back_button("um_back_denied")
+        return
+
+    if not get_apps_script_url():
+        st.warning("⚠️ The account database is not connected yet.")
+        back_button("um_back_nodb")
+        return
+
+    if not get_admin_key():
+        st.warning("⚠️ Add `ADMIN_KEY` to your Streamlit secrets (same text as in Code.gs) to use this page.")
+        back_button("um_back_nokey")
+        return
+
+    st.write("Passwords are stored as hashes, so **nobody can see them** — not even the admin. "
+             "If a user forgets their password, set a new one for them below.")
+
+    if st.session_state.get("um_flash"):
+        st.success(st.session_state.pop("um_flash"))
+
+    refresh = st.button("🔄 Refresh")
+    if refresh or "users_data" not in st.session_state:
+        load_users()
+
+    res = st.session_state.get("users_data")
+    if res is None:
+        st.error("❌ Could not load users. Check the Apps Script URL and try again.")
+        back_button("um_back_err")
+        return
+    if res.get("status") != "ok":
+        st.error(ADMIN_ERRORS.get(res.get("status"), "❌ Could not load users."))
+        back_button("um_back_err2")
+        return
+
+    users = res.get("users", [])
+    if not users:
+        st.info("No registered users yet.")
+        back_button("um_back_empty")
+        return
+
+    df = pd.DataFrame(users)
+    df["status"] = df["locked"].map(lambda x: "🔒 Locked" if x else "Active")
+
+    st.markdown('<div class="info-box">', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Users", len(df))
+    c2.metric("Admins", int((df["role"] == "admin").sum()))
+    c3.metric("Locked Accounts", int(df["locked"].sum()))
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="info-box">', unsafe_allow_html=True)
+    st.subheader("All Users")
+    q = st.text_input("🔍 Search by username or email", key="um_search")
+    view = df
+    if q.strip():
+        mask = (df["username"].astype(str).str.contains(q, case=False, regex=False)
+                | df["email"].astype(str).str.contains(q, case=False, regex=False))
+        view = df[mask]
+    st.dataframe(view[["username", "email", "role", "status"]])
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="info-box">', unsafe_allow_html=True)
+    st.subheader("Manage a user")
+    selected = st.selectbox("Select user", df["username"].tolist(), key="um_selected")
+    row = df[df["username"] == selected].iloc[0]
+    st.caption(f"📧 {row['email']}  ·  Role: **{row['role']}**  ·  Status: **{row['status']}**")
+
+    t1, t2, t3, t4 = st.tabs(["🔑 Reset Password", "🛡️ Change Role", "🔓 Unlock", "🗑️ Delete"])
+
+    with t1:
+        with st.form("um_reset_form", clear_on_submit=True):
+            np1 = st.text_input("New password", type="password")
+            np2 = st.text_input("Confirm new password", type="password")
+            st.caption("Min 8 characters, with at least one letter and one number.")
+            submitted = st.form_submit_button("Set New Password", type="primary")
+        if submitted:
+            err = password_problem(np1) if np1 else "Please enter a new password."
+            if err:
+                st.error(f"❌ {err}")
+            elif np1 != np2:
+                st.error("❌ Passwords do not match.")
+            else:
+                run_admin_action(
+                    {"type": "admin_reset_password", "username": selected, "password": np1},
+                    f"✅ Password for {selected} was reset (and the account unlocked).")
+
+    with t2:
+        new_role = st.selectbox("Role", ["user", "admin"],
+                                index=0 if row["role"] != "admin" else 1, key="um_role")
+        if st.button("Update Role", key="um_role_btn"):
+            if new_role == row["role"]:
+                st.info("ℹ️ That is already the user's role.")
+            else:
+                run_admin_action({"type": "set_role", "username": selected, "role": new_role},
+                                 f"✅ {selected} is now '{new_role}'.")
+
+    with t3:
+        if row["locked"]:
+            st.warning("This account is locked because of too many wrong password attempts.")
+        else:
+            st.write("This account is not locked.")
+        if st.button("Unlock Account", key="um_unlock_btn", disabled=not bool(row["locked"])):
+            run_admin_action({"type": "unlock_user", "username": selected},
+                             f"✅ {selected} was unlocked.")
+
+    with t4:
+        st.warning("⚠️ This permanently deletes the account. Their past review history stays in the logs.")
+        sure = st.checkbox(f"Yes, delete {selected}", key="um_delete_sure")
+        if st.button("Delete User", key="um_delete_btn", type="primary", disabled=not sure):
+            run_admin_action({"type": "delete_user", "username": selected},
+                             f"✅ {selected} was deleted.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    back_button("um_back_main")
+
+
+# ============================================================
 # MAIN APP FLOW
 # ============================================================
 if not st.session_state.logged_in:
@@ -1124,6 +1303,7 @@ else:
     pages = ["Home", "Review Checker", "Product Trust Score", "Batch Checker", "Insights", "My History"]
     if is_admin():
         pages.append("Dashboard")
+        pages.append("Manage Users")
 
     # If the stored page is not allowed for this role, send the user home.
     if st.session_state.page not in pages:
@@ -1154,3 +1334,5 @@ else:
         my_history_page()
     elif st.session_state.page == "Dashboard":
         dashboard_page()
+    elif st.session_state.page == "Manage Users":
+        manage_users_page()
