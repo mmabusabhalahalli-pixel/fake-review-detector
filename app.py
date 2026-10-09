@@ -1,6 +1,8 @@
 import streamlit as st
 import joblib
 import re
+import html
+from collections import Counter
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -56,6 +58,27 @@ div.stButton > button:hover { transform: translateY(-2px); }
     background: #EAF1F8; border-radius: 10px; padding: 12px 14px;
     font-size: 12.5px; color: #5A5A5A; margin-top: 10px;
 }
+.highlight-box {
+    background: #ffffff; border-radius: 12px; padding: 16px 18px;
+    line-height: 2.0; font-size: 15.5px; color: #222222;
+    border: 1px solid rgba(0,0,0,0.08);
+}
+.legend-chip {
+    display: inline-block; padding: 2px 10px; border-radius: 6px;
+    font-size: 12.5px; margin-right: 8px; color: #222222;
+}
+.flag-box {
+    background: #FFF4E5; border-left: 5px solid #E67E22; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 8px; color: #5D3A00; font-size: 14px;
+}
+.score-card {
+    border-radius: 20px; padding: 26px 20px; text-align: center; color: #ffffff;
+    box-shadow: 8px 8px 18px rgba(0,0,0,0.18), -6px -6px 14px rgba(255,255,255,0.6);
+    margin-bottom: 18px;
+}
+.score-number { font-size: 64px; font-weight: 800; line-height: 1.1; }
+.score-label { font-size: 20px; font-weight: 700; margin-top: 4px; }
+.score-sub { font-size: 13px; opacity: 0.92; margin-top: 6px; }
 
 /* ---------- Sidebar styled like the Figma design ---------- */
 [data-testid="stSidebar"] {
@@ -197,6 +220,96 @@ def explain_review(review_text, model, vectorizer, top_n=6):
     fake_words = [(words[i], contributions[i]) for i in order[::-1] if contributions[i] > 0][:top_n]
     real_words = [(words[i], contributions[i]) for i in order if contributions[i] < 0][:top_n]
     return fake_words, real_words
+
+
+# ============================================================
+# PHASE 1 HELPERS: red flags, highlighting, trust score
+# ============================================================
+STOPWORDS = {
+    "the", "and", "this", "that", "with", "have", "for", "was", "are", "but", "not",
+    "you", "all", "can", "had", "her", "his", "from", "they", "been", "were", "will",
+    "would", "there", "their", "what", "about", "which", "when", "your", "very", "just",
+}
+PRAISE_WORDS = {
+    "best", "amazing", "excellent", "perfect", "awesome", "fantastic", "wonderful",
+    "superb", "outstanding", "incredible", "great", "love", "loved",
+}
+
+
+def find_red_flags(text):
+    """Simple rule-based checks that work alongside the ML model.
+    Returns a list of human-readable warnings (empty list = no red flags)."""
+    flags = []
+    t = str(text).strip()
+    words = re.findall(r"[A-Za-z']+", t)
+    n = len(words)
+
+    if n < 5:
+        flags.append("Very short review (less than 5 words) — gives no real detail.")
+
+    excl = t.count("!")
+    if excl >= 3:
+        flags.append(f"Too many exclamation marks ({excl}).")
+
+    caps = [w for w in words if len(w) >= 3 and w.isupper()]
+    if len(caps) >= 3:
+        flags.append(f"Many ALL-CAPS words ({len(caps)}).")
+
+    counts = Counter(w.lower() for w in words if len(w) > 3 and w.lower() not in STOPWORDS)
+    repeated = [w for w, c in counts.items() if c >= 3]
+    if repeated:
+        flags.append("Same word repeated 3+ times: " + ", ".join(repeated[:4]) + ".")
+
+    praise = [w for w in words if w.lower() in PRAISE_WORDS]
+    if len(praise) >= 3 and n <= 25:
+        flags.append("Lots of over-the-top praise words but very little detail.")
+
+    return flags
+
+
+def highlight_review_html(review_text, model, vectorizer):
+    """Return HTML where each word the model knows is shaded red (fake-leaning)
+    or green (real-leaning). Darker shade = stronger influence."""
+    coefs = model.coef_[0]
+    vocab = vectorizer.vocabulary_
+
+    tokens = str(review_text).split()
+    weights = []
+    for tok in tokens:
+        key = clean_text(tok).strip()
+        idx = vocab.get(key) if key else None
+        weights.append(float(coefs[idx]) if idx is not None else 0.0)
+
+    max_abs = max((abs(w) for w in weights), default=0.0)
+    parts = []
+    for tok, w in zip(tokens, weights):
+        safe = html.escape(tok)
+        if max_abs == 0 or abs(w) / max_abs < 0.2:
+            parts.append(safe)
+            continue
+        strength = abs(w) / max_abs
+        alpha = 0.18 + 0.55 * strength
+        if w > 0:
+            color = f"rgba(192,57,43,{alpha:.2f})"
+            tip = "pushes toward FAKE"
+        else:
+            color = f"rgba(39,174,96,{alpha:.2f})"
+            tip = "pushes toward REAL"
+        parts.append(
+            f'<span title="{tip}" style="background:{color}; border-radius:5px; padding:2px 4px;">{safe}</span>'
+        )
+    return " ".join(parts)
+
+
+def predict_many(review_list, model, vectorizer):
+    """Fast batch prediction. Returns (fake_probabilities, is_fake_flags)."""
+    cleaned = [clean_text(r) for r in review_list]
+    X = vectorizer.transform(cleaned)
+    probs = model.predict_proba(X)
+    fake_col = list(model.classes_).index(1)
+    fake_prob = probs[:, fake_col]
+    return fake_prob, fake_prob >= 0.5
+
 
 def platform_card(name, icon, url):
     st.markdown(
@@ -423,6 +536,7 @@ def home_page():
     # Buttons shown depend on role: only admins get the Dashboard button.
     quick_links = [
         ("🔍 Review Checker", "Review Checker", True),
+        ("🛡️ Trust Score", "Product Trust Score", True),
         ("📂 Batch Checker", "Batch Checker", False),
         ("📊 Insights", "Insights", False),
         ("🕘 My History", "My History", False),
@@ -430,16 +544,20 @@ def home_page():
     if is_admin():
         quick_links.append(("📈 Dashboard", "Dashboard", False))
 
-    cols = st.columns(len(quick_links))
-    for col, (label, target, primary) in zip(cols, quick_links):
-        with col:
-            if st.button(label, type="primary" if primary else "secondary", key=f"home_btn_{target}"):
-                st.session_state.page = target
-                st.rerun()
+    # Show the buttons in rows of 3 so labels never get squeezed.
+    for start in range(0, len(quick_links), 3):
+        row = quick_links[start:start + 3]
+        cols = st.columns(3)
+        for col, (label, target, primary) in zip(cols, row):
+            with col:
+                if st.button(label, type="primary" if primary else "secondary",
+                             key=f"home_btn_{target}", use_container_width=True):
+                    st.session_state.page = target
+                    st.rerun()
 
 
 # ============================================================
-# REVIEW CHECKER PAGE (with explanation + logging)
+# REVIEW CHECKER PAGE (explanation + highlighting + red flags + logging)
 # ============================================================
 def review_checker_page():
     st.markdown('<h1 class="hero-title">🔍 Review Checker</h1>', unsafe_allow_html=True)
@@ -468,6 +586,30 @@ def review_checker_page():
             st.metric("Model Confidence", f"{confidence:.1f}%")
             st.progress(confidence / 100)
 
+            # ---- Highlighted review ----
+            st.markdown("#### 🖍️ Your review, highlighted")
+            st.markdown(
+                '<span class="legend-chip" style="background:rgba(192,57,43,0.45);">Fake-sounding</span>'
+                '<span class="legend-chip" style="background:rgba(39,174,96,0.45);">Real-sounding</span>'
+                '<span style="font-size:12px; color:#777;">Darker shade = stronger influence</span>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f'<div class="highlight-box">{highlight_review_html(review_input, model, vectorizer)}</div>',
+                unsafe_allow_html=True,
+            )
+
+            # ---- Red flags (rule-based) ----
+            flags = find_red_flags(review_input)
+            st.markdown("#### 🚩 Red-flag check")
+            if flags:
+                for f in flags:
+                    st.markdown(f'<div class="flag-box">🚩 {html.escape(f)}</div>', unsafe_allow_html=True)
+                st.caption("These are simple rule-based warnings. They work alongside the ML model, they don't replace it.")
+            else:
+                st.success("✅ No suspicious writing patterns found.")
+
+            # ---- Word-level explanation ----
             fake_words, real_words = explain_review(review_input, model, vectorizer)
             st.markdown("#### 🧠 Why did the model decide this?")
             wc1, wc2 = st.columns(2)
@@ -498,6 +640,141 @@ def review_checker_page():
 
 
 # ============================================================
+# PRODUCT TRUST SCORE PAGE (new in Phase 1)
+# ============================================================
+def analyze_product(reviews, product_name, model, vectorizer):
+    fake_prob, is_fake = predict_many(reviews, model, vectorizer)
+    flags_list = [find_red_flags(r) for r in reviews]
+
+    total = len(reviews)
+    fake_count = int(is_fake.sum())
+    real_count = total - fake_count
+    flagged = sum(1 for f in flags_list if f)
+
+    # Trust Score = 100 minus the average chance that a review is fake.
+    trust = int(round((1 - float(fake_prob.mean())) * 100))
+
+    if trust >= 75:
+        verdict, icon = "Trustworthy", "✅"
+        bg = "linear-gradient(145deg, #27AE60, #1E8449)"
+        advice = "Most reviews look genuine. Still read a few before buying."
+    elif trust >= 50:
+        verdict, icon = "Mixed — Read Carefully", "⚠️"
+        bg = "linear-gradient(145deg, #E67E22, #CA6F1E)"
+        advice = "A noticeable share of reviews look fake. Don't rely on the star rating alone."
+    else:
+        verdict, icon = "Suspicious", "❌"
+        bg = "linear-gradient(145deg, #C0392B, #922B21)"
+        advice = "Many reviews look fake. Be very careful with this product's rating."
+
+    title = html.escape(product_name.strip()) if product_name.strip() else "This product"
+    st.markdown(
+        f"""<div class="score-card" style="background:{bg};">
+        <div style="font-size:15px; opacity:0.9;">{title}</div>
+        <div class="score-number">{trust}<span style="font-size:26px;">/100</span></div>
+        <div class="score-label">{icon} {verdict}</div>
+        <div class="score-sub">{advice}</div></div>""",
+        unsafe_allow_html=True,
+    )
+    st.progress(trust / 100)
+
+    if total < 5:
+        st.warning("⚠️ Only a few reviews were checked, so this score may not be reliable. Add 10+ reviews for a better result.")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Reviews", total)
+    c2.metric("Fake", fake_count)
+    c3.metric("Real", real_count)
+    c4.metric("Red-flagged", flagged)
+
+    st.markdown("#### Fake vs Real")
+    fig, ax = plt.subplots(figsize=(3.6, 3.6))
+    if fake_count == 0 or real_count == 0:
+        ax.pie([1], labels=["Fake" if fake_count else "Real"],
+               colors=["#C0392B" if fake_count else "#27AE60"], autopct=lambda p: f"{total}")
+    else:
+        ax.pie([fake_count, real_count], labels=["Fake", "Real"], autopct="%1.1f%%",
+               colors=["#C0392B", "#27AE60"], startangle=90)
+    ax.axis("equal")
+    st.pyplot(fig)
+
+    result_df = pd.DataFrame({
+        "review": reviews,
+        "prediction": ["Fake" if x else "Real" for x in is_fake],
+        "fake probability (%)": np.round(fake_prob * 100, 1),
+        "red flags": [len(f) for f in flags_list],
+    })
+
+    st.markdown("#### 🔎 Most suspicious reviews")
+    top = result_df.sort_values("fake probability (%)", ascending=False).head(3)
+    for _, row in top.iterrows():
+        st.markdown(
+            f'<div class="flag-box">🚩 <b>{row["fake probability (%)"]}% fake</b> — {html.escape(str(row["review"])[:200])}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("📋 See every review with its result"):
+        st.dataframe(result_df)
+
+    csv_out = result_df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download Report (CSV)", csv_out, "trust_score_report.csv", "text/csv")
+
+
+def trust_score_page():
+    st.markdown('<h1 class="hero-title">🛡️ Product Trust Score</h1>', unsafe_allow_html=True)
+    st.write(
+        "Should you trust this product's reviews? Paste several reviews of **one product** and the system "
+        "will give an overall **Trust Score out of 100**."
+    )
+
+    model, vectorizer = load_model()
+
+    with st.expander("ℹ️ How is the score calculated?"):
+        st.write(
+            "The model gives every review a probability of being fake. "
+            "**Trust Score = 100 − average fake probability.** "
+            "75 or more is trustworthy, 50–74 is mixed, below 50 is suspicious."
+        )
+
+    product_name = st.text_input("🏷️ Product name (optional)", placeholder="e.g. boAt Airdopes 141")
+
+    tab1, tab2 = st.tabs(["📋 Paste Reviews", "📁 Upload CSV"])
+
+    with tab1:
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        st.write("Copy 10–20 reviews of the product from Amazon, Flipkart, etc. — **one review per line**.")
+        pasted = st.text_area(
+            "Paste reviews here (one per line):", height=220, key="trust_paste",
+            placeholder="Battery lasts a full day, mic is average.\nBest product ever! Amazing! Buy now!!!\nStopped working after 3 weeks."
+        )
+        if st.button("🛡️ Calculate Trust Score", type="primary", key="trust_btn_paste"):
+            lines = [l.strip() for l in pasted.split("\n") if l.strip()]
+            if not lines:
+                st.warning("⚠️ Please paste at least one review.")
+            else:
+                analyze_product(lines, product_name, model, vectorizer)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with tab2:
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        up = st.file_uploader("Upload CSV file", type=["csv"], key="trust_csv")
+        if up is not None:
+            df = pd.read_csv(up)
+            st.dataframe(df.head())
+            col_name = st.selectbox("Column with the review text:", df.columns, key="trust_col")
+            if st.button("🛡️ Calculate Trust Score", type="primary", key="trust_btn_csv"):
+                reviews = [r.strip() for r in df[col_name].astype(str).tolist() if r.strip() and r.strip().lower() != "nan"]
+                if not reviews:
+                    st.warning("⚠️ No review text found in that column.")
+                else:
+                    analyze_product(reviews, product_name, model, vectorizer)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if st.button("⬅️ Back to Home"):
+        st.session_state.page = "Home"; st.rerun()
+
+
+# ============================================================
 # BATCH CHECKER PAGE (with logging)
 # ============================================================
 def run_batch_predictions(review_list, model, vectorizer):
@@ -507,7 +784,12 @@ def run_batch_predictions(review_list, model, vectorizer):
     for i, text in enumerate(review_list):
         label, confidence, _ = predict_review(text, model, vectorizer)
         log_to_sheet(text, label, round(confidence, 1))
-        results.append({"review": text, "prediction": label, "confidence (%)": round(confidence, 1)})
+        results.append({
+            "review": text,
+            "prediction": label,
+            "confidence (%)": round(confidence, 1),
+            "red flags": len(find_red_flags(text)),
+        })
         progress.progress((i + 1) / total)
     return pd.DataFrame(results)
 
@@ -763,7 +1045,7 @@ else:
     st.sidebar.title("📂 Navigation")
 
     # Pages visible depend on role: only admins see the Dashboard.
-    pages = ["Home", "Review Checker", "Batch Checker", "Insights", "My History"]
+    pages = ["Home", "Review Checker", "Product Trust Score", "Batch Checker", "Insights", "My History"]
     if is_admin():
         pages.append("Dashboard")
 
@@ -786,6 +1068,8 @@ else:
         home_page()
     elif st.session_state.page == "Review Checker":
         review_checker_page()
+    elif st.session_state.page == "Product Trust Score":
+        trust_score_page()
     elif st.session_state.page == "Batch Checker":
         batch_checker_page()
     elif st.session_state.page == "Insights":
