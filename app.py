@@ -87,6 +87,12 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "page" not in st.session_state:
     st.session_state.page = "Home"
+if "role" not in st.session_state:
+    st.session_state.role = "user"   # "admin" or "user"
+
+
+def is_admin():
+    return st.session_state.get("role") == "admin"
 
 # ---------- Google Sheets Logging (via Apps Script Web App) ----------
 def get_apps_script_url():
@@ -211,6 +217,7 @@ def login_page():
         st.session_state.logged_in = True
         st.session_state.user_name = st.user.name
         st.session_state.user_email = st.user.email
+        st.session_state.role = "user"
         st.session_state.page = "Home"
         st.rerun()
 
@@ -244,6 +251,7 @@ def login_page():
                     st.session_state.logged_in = True
                     st.session_state.user_name = "Admin (Demo)"
                     st.session_state.user_email = "admin-demo@local"
+                    st.session_state.role = "admin"
                     st.session_state.page = "Home"
                     st.rerun()
                 else:
@@ -251,9 +259,15 @@ def login_page():
                     if result is None:
                         st.error("❌ Invalid username or password. Please try again.")
                     elif result.get("status") == "ok":
+                        # Use the canonical username/email returned by the database so that
+                        # history stays consistent even if the user logs in with email one day
+                        # and username the next.
+                        real_username = result.get("username") or username
+                        real_email = result.get("email") or real_username
                         st.session_state.logged_in = True
-                        st.session_state.user_name = username
-                        st.session_state.user_email = username
+                        st.session_state.user_name = real_username
+                        st.session_state.user_email = real_email
+                        st.session_state.role = result.get("role") or "user"
                         st.session_state.page = "Home"
                         st.rerun()
                     else:
@@ -370,19 +384,22 @@ def home_page():
     st.caption("Note: these links open the official site in a new tab (these platforms don't allow being displayed inside other websites).")
 
     st.markdown("---")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        if st.button("🔍 Review Checker", type="primary"):
-            st.session_state.page = "Review Checker"; st.rerun()
-    with c2:
-        if st.button("📂 Batch Checker"):
-            st.session_state.page = "Batch Checker"; st.rerun()
-    with c3:
-        if st.button("📊 Insights"):
-            st.session_state.page = "Insights"; st.rerun()
-    with c4:
-        if st.button("📈 Dashboard"):
-            st.session_state.page = "Dashboard"; st.rerun()
+    # Buttons shown depend on role: only admins get the Dashboard button.
+    quick_links = [
+        ("🔍 Review Checker", "Review Checker", True),
+        ("📂 Batch Checker", "Batch Checker", False),
+        ("📊 Insights", "Insights", False),
+        ("🕘 My History", "My History", False),
+    ]
+    if is_admin():
+        quick_links.append(("📈 Dashboard", "Dashboard", False))
+
+    cols = st.columns(len(quick_links))
+    for col, (label, target, primary) in zip(cols, quick_links):
+        with col:
+            if st.button(label, type="primary" if primary else "secondary", key=f"home_btn_{target}"):
+                st.session_state.page = target
+                st.rerun()
 
 
 # ============================================================
@@ -559,10 +576,70 @@ def insights_page():
 
 
 # ============================================================
-# DASHBOARD PAGE (reads from Google Sheet)
+# MY HISTORY PAGE (only the logged-in user's own reviews)
+# ============================================================
+def my_history_page():
+    st.markdown('<h1 class="hero-title">🕘 My History</h1>', unsafe_allow_html=True)
+    st.write("All the reviews **you** have checked on this system.")
+
+    if not get_apps_script_url():
+        st.warning("⚠️ History is not available because the database is not connected yet.")
+        if st.button("⬅️ Back to Home"):
+            st.session_state.page = "Home"; st.rerun()
+        return
+
+    if st.button("🔄 Refresh"):
+        st.cache_data.clear()
+
+    df = get_dashboard_data()
+    my_id = st.session_state.get("user_email", "")
+
+    if df is None:
+        st.error("❌ Could not load history right now. Please try again.")
+    elif "user" not in df.columns:
+        st.info("No personal history yet — start checking some reviews!")
+    else:
+        mine = df[df["user"].astype(str) == str(my_id)]
+
+        if len(mine) == 0:
+            st.info("You haven't checked any reviews yet. Go to the Review Checker and try one!")
+        else:
+            total = len(mine)
+            fake_count = int(mine["prediction"].astype(str).str.contains("Fake").sum())
+            real_count = total - fake_count
+
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Reviews You Checked", total)
+            c2.metric("Fake Found", fake_count)
+            c3.metric("Real Found", real_count)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.subheader("Your Recent Reviews")
+            shown = mine.sort_values("timestamp", ascending=False)
+            st.dataframe(shown[["timestamp", "review", "prediction", "confidence"]])
+            csv_out = shown.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download My History (CSV)", csv_out, "my_history.csv", "text/csv")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    if st.button("⬅️ Back to Home"):
+        st.session_state.page = "Home"; st.rerun()
+
+
+# ============================================================
+# DASHBOARD PAGE (admin only, reads from Google Sheet)
 # ============================================================
 def dashboard_page():
     st.markdown('<h1 class="hero-title">📈 Admin Dashboard</h1>', unsafe_allow_html=True)
+
+    # Role-based access: normal users are blocked even if they reach this page somehow.
+    if not is_admin():
+        st.error("🚫 Access denied. The Dashboard is available to administrators only.")
+        if st.button("⬅️ Back to Home"):
+            st.session_state.page = "Home"; st.rerun()
+        return
+
     st.write("All-time statistics logged from every review checked on this system.")
 
     if not get_apps_script_url():
@@ -639,19 +716,31 @@ def dashboard_page():
 if not st.session_state.logged_in:
     login_page()
 else:
+    role_label = "Administrator" if is_admin() else "User"
     st.sidebar.markdown(
         f"👋 **{st.session_state.get('user_name', 'User')}**<br>"
-        f"<span style='font-size:12px; opacity:0.8;'>{st.session_state.get('user_email', '')}</span>",
+        f"<span style='font-size:12px; opacity:0.8;'>{st.session_state.get('user_email', '')}</span><br>"
+        f"<span style='font-size:11px; opacity:0.8;'>Role: {role_label}</span>",
         unsafe_allow_html=True,
     )
     st.sidebar.markdown("---")
     st.sidebar.title("📂 Navigation")
-    pages = ["Home", "Review Checker", "Batch Checker", "Insights", "Dashboard"]
+
+    # Pages visible depend on role: only admins see the Dashboard.
+    pages = ["Home", "Review Checker", "Batch Checker", "Insights", "My History"]
+    if is_admin():
+        pages.append("Dashboard")
+
+    # If the stored page is not allowed for this role, send the user home.
+    if st.session_state.page not in pages:
+        st.session_state.page = "Home"
+
     nav_choice = st.sidebar.radio("Go to:", pages, index=pages.index(st.session_state.page))
     st.session_state.page = nav_choice
 
     if st.sidebar.button("🚪 Logout"):
         st.session_state.logged_in = False
+        st.session_state.role = "user"
         st.session_state.page = "Home"
         if google_auth_available() and getattr(st.user, "is_logged_in", False):
             st.logout()
@@ -665,5 +754,7 @@ else:
         batch_checker_page()
     elif st.session_state.page == "Insights":
         insights_page()
+    elif st.session_state.page == "My History":
+        my_history_page()
     elif st.session_state.page == "Dashboard":
         dashboard_page()
