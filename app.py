@@ -1,6 +1,7 @@
 import streamlit as st
 import joblib
 import re
+import os
 import html
 import io
 import csv
@@ -166,6 +167,46 @@ def log_to_sheet(review, prediction, confidence):
     except Exception:
         pass  # logging failure should never break the user's experience
 
+def log_many_to_sheet(rows):
+    """Save many review checks with ONE request per 200 rows (much faster than one by one).
+    rows = list of dicts: {"review", "prediction", "confidence"}"""
+    url = get_apps_script_url()
+    if not url or not rows:
+        return
+    user_email = st.session_state.get("user_email", "unknown")
+    for i in range(0, len(rows), 200):
+        try:
+            requests.post(url, json={"type": "log_many", "rows": rows[i:i + 200], "user": user_email}, timeout=20)
+        except Exception:
+            pass
+
+
+def send_feedback(review, prediction_label, confidence, correct):
+    """Save the user's thumbs up / thumbs down. Returns True if it was saved."""
+    result = call_apps_script({
+        "type": "feedback",
+        "review": review,
+        "prediction": prediction_label,
+        "confidence": confidence,
+        "correct": bool(correct),
+        "user": st.session_state.get("user_email", "unknown"),
+    })
+    return bool(result and result.get("status") == "ok")
+
+
+@st.cache_data(ttl=30)
+def get_feedback_data(admin_key):
+    """Admin only: all feedback rows as a DataFrame (or None on error)."""
+    res = call_apps_script({"type": "list_feedback", "admin_key": admin_key})
+    if not res or res.get("status") != "ok":
+        return None
+    cols = ["timestamp", "review", "model_said", "actual_label", "verdict", "user"]
+    rows = res.get("rows", [])
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    return pd.DataFrame([r[:6] for r in rows], columns=cols[:len(rows[0][:6])])
+
+
 @st.cache_data(ttl=30)
 def get_dashboard_data():
     """Fetch all logged rows from the Google Sheet. Returns a DataFrame or None."""
@@ -185,11 +226,31 @@ def get_dashboard_data():
         return None
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(globals().get("__file__", "app.py")))
+
+
 @st.cache_resource
-def load_model():
-    model = joblib.load("fake_review_model.pkl")
-    vectorizer = joblib.load("tfidf_vectorizer.pkl")
+def _load_model_files():
+    # Looked up next to app.py, so it works no matter which folder the terminal is in
+    model = joblib.load(os.path.join(BASE_DIR, "fake_review_model.pkl"))
+    vectorizer = joblib.load(os.path.join(BASE_DIR, "tfidf_vectorizer.pkl"))
     return model, vectorizer
+
+
+def load_model():
+    """Loads the trained model. If the files are missing, shows what to do instead of a long error."""
+    try:
+        return _load_model_files()
+    except FileNotFoundError:
+        st.error("🧠 The model files were not found: `fake_review_model.pkl` and `tfidf_vectorizer.pkl`.")
+        st.info(
+            "**How to create them (one time):**\n\n"
+            "1. Download the Kaggle *Fake Reviews Dataset* (.csv) and put it in the same folder as `app.py`.\n"
+            "2. In the terminal run:  `python train_model.py fake_reviews_dataset.csv`\n"
+            "3. Run the app again.\n\n"
+            "Or just double-click `START_HERE.bat`, it does these steps for you."
+        )
+        st.stop()
 
 def clean_text(text):
     text = str(text).lower()
@@ -424,6 +485,20 @@ def call_admin_script(payload):
     return call_apps_script({**payload, "admin_key": key})
 
 
+def otp_error_message(result):
+    """Friendly message for a failed 'send code' request."""
+    if result is None:
+        return "❌ Could not reach the account database. Try again later."
+    status = result.get("status")
+    if status == "wait":
+        return f"⏳ Please wait {result.get('seconds', 60)} seconds before asking for a new code."
+    if status == "mail_quota":
+        return "❌ The daily email limit was reached. Please try again tomorrow."
+    if status == "mail_failed":
+        return "❌ Could not send the email. Check that this account has a valid email address."
+    return "❌ Something went wrong. Please try again."
+
+
 def login_page():
     # If Streamlit's native Google login already succeeded, pick it up here.
     if google_auth_available() and getattr(st.user, "is_logged_in", False):
@@ -546,38 +621,94 @@ def login_page():
                         st.error(result.get("message", "❌ Registration failed."))
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # ================= FORGOT PASSWORD TAB =================
+        # ================= FORGOT PASSWORD TAB (6-digit code by email) =================
         with tab_forgot:
             st.markdown('<div class="info-box">', unsafe_allow_html=True)
-            st.write("Enter your username and choose a new password.")
+            stage = st.session_state.get("fp_stage", 1)
 
-            fp_user = st.text_input("👤 Username or Email", key="forgot_user")
-            fp_new_pass = st.text_input("🔒 New Password", type="password", key="forgot_new_pass")
-            st.caption("Min 8 characters, with at least one letter and one number.")
-            fp_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="forgot_confirm_pass")
+            if st.session_state.get("fp_flash"):
+                st.success(st.session_state.pop("fp_flash"))
 
-            if st.button("RESET PASSWORD  →", type="primary", use_container_width=True):
-                pw_err = password_problem(fp_new_pass) if fp_new_pass else None
-                if not fp_user or not fp_new_pass:
-                    st.warning("⚠️ Please fill in your username and a new password.")
-                elif pw_err:
-                    st.error(f"❌ {pw_err}")
-                elif fp_new_pass != fp_confirm_pass:
-                    st.error("❌ Passwords do not match.")
-                elif not get_apps_script_url():
-                    st.info("ℹ️ Account database is not connected yet. This will work once it's set up.")
-                else:
-                    result = call_apps_script({"type": "reset_password", "username": fp_user, "password": fp_new_pass})
-                    if result is None:
-                        st.error("❌ Could not reach the account database. Try again later.")
-                    elif result.get("status") == "ok":
-                        st.success("✅ Password updated! You can now log in with your new password.")
-                    elif result.get("status") == "not_found":
-                        st.error("❌ No account found with that username.")
-                    elif result.get("status") == "weak_password":
-                        st.error("❌ Password is too weak.")
+            if not get_apps_script_url():
+                st.info("ℹ️ Account database is not connected yet. This will work once it's set up.")
+
+            elif stage == 1:
+                st.write("Enter your username or email. We will send a 6-digit code to your registered email address.")
+                fp_user = st.text_input("👤 Username or Email", key="forgot_user")
+
+                if st.button("SEND CODE  →", type="primary", use_container_width=True):
+                    if not fp_user.strip():
+                        st.warning("⚠️ Please enter your username or email.")
                     else:
-                        st.error("❌ Something went wrong. Please try again.")
+                        result = call_apps_script({"type": "request_otp", "username": fp_user.strip()})
+                        if result and result.get("status") == "otp_sent":
+                            st.session_state.fp_stage = 2
+                            st.session_state.fp_account = fp_user.strip()
+                            st.rerun()
+                        else:
+                            st.error(otp_error_message(result))
+
+            else:
+                account = st.session_state.get("fp_account", "")
+                st.info("📧 If this account exists, a 6-digit code was sent to its registered email. "
+                        "It is valid for 10 minutes. Check your spam folder too.")
+                st.caption(f"Account: {account}")
+
+                otp = st.text_input("🔢 6-digit code", max_chars=6, key="forgot_otp")
+                fp_new_pass = st.text_input("🔒 New Password", type="password", key="forgot_new_pass")
+                st.caption("Min 8 characters, with at least one letter and one number.")
+                fp_confirm_pass = st.text_input("🔒 Confirm New Password", type="password", key="forgot_confirm_pass")
+
+                if st.button("RESET PASSWORD  →", type="primary", use_container_width=True):
+                    pw_err = password_problem(fp_new_pass) if fp_new_pass else None
+                    if not re.fullmatch(r"\d{6}", otp.strip()):
+                        st.warning("⚠️ Enter the 6-digit code from your email.")
+                    elif not fp_new_pass:
+                        st.warning("⚠️ Please enter a new password.")
+                    elif pw_err:
+                        st.error(f"❌ {pw_err}")
+                    elif fp_new_pass != fp_confirm_pass:
+                        st.error("❌ Passwords do not match.")
+                    else:
+                        result = call_apps_script({
+                            "type": "reset_with_otp", "username": account,
+                            "otp": otp.strip(), "password": fp_new_pass,
+                        })
+                        status = result.get("status") if result else None
+                        if status == "ok":
+                            st.session_state.fp_stage = 1
+                            st.session_state.fp_flash = "✅ Password updated! You can now log in with your new password."
+                            st.rerun()
+                        elif status == "otp_invalid":
+                            left = result.get("tries_left")
+                            msg = "❌ That code is not correct."
+                            if left is not None:
+                                msg += f" {left} attempt(s) left for this code."
+                            st.error(msg)
+                        elif status == "otp_expired":
+                            st.error("⌛ This code has expired. Click 'Send a new code' below.")
+                        elif status == "otp_locked":
+                            st.error("🔒 Too many wrong codes. Wait a minute, then click 'Send a new code'.")
+                        elif status == "weak_password":
+                            st.error("❌ Password is too weak.")
+                        elif result is None:
+                            st.error("❌ Could not reach the account database. Try again later.")
+                        else:
+                            st.error("❌ Something went wrong. Please try again.")
+
+                c_resend, c_back = st.columns(2)
+                with c_resend:
+                    if st.button("🔁 Send a new code", use_container_width=True):
+                        result = call_apps_script({"type": "request_otp", "username": account})
+                        if result and result.get("status") == "otp_sent":
+                            st.success("📧 A new code was sent.")
+                        else:
+                            st.warning(otp_error_message(result))
+                with c_back:
+                    if st.button("⬅️ Use another account", use_container_width=True):
+                        st.session_state.fp_stage = 1
+                        st.rerun()
+
             st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -647,6 +778,88 @@ def home_page():
 # ============================================================
 # REVIEW CHECKER PAGE (explanation + highlighting + red flags + logging)
 # ============================================================
+def render_review_result(res, model, vectorizer):
+    """Shows a saved result. Lives in session_state so the feedback buttons don't make it vanish."""
+    review_input = res["review"]
+    label, confidence, prediction = res["label"], res["confidence"], res["prediction"]
+
+    st.markdown("---")
+    if prediction == 1:
+        st.error(f"### ❌ {label}")
+    else:
+        st.success(f"### ✅ {label}")
+    st.metric("Model Confidence", f"{confidence:.1f}%")
+    st.progress(confidence / 100)
+
+    # ---- Feedback ----
+    st.markdown("#### 💬 Was this prediction correct?")
+    if res.get("fb") is not None:
+        if res["fb"] == "correct":
+            st.success("🙏 Thanks! Glad the model got it right. Your feedback was saved.")
+        else:
+            st.info("🙏 Thanks! The correction was saved and will help improve the model.")
+    elif not get_apps_script_url():
+        st.caption("Feedback is available once the database is connected.")
+    else:
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button("👍 Yes, correct", key="fb_yes", use_container_width=True):
+                if send_feedback(review_input, label, round(confidence, 1), True):
+                    res["fb"] = "correct"
+                    st.rerun()
+                else:
+                    st.error("❌ Could not save feedback. Try again.")
+        with b2:
+            if st.button("👎 No, wrong", key="fb_no", use_container_width=True):
+                if send_feedback(review_input, label, round(confidence, 1), False):
+                    res["fb"] = "wrong"
+                    st.rerun()
+                else:
+                    st.error("❌ Could not save feedback. Try again.")
+
+    # ---- Highlighted review ----
+    st.markdown("#### 🖍️ Your review, highlighted")
+    st.markdown(
+        '<span class="legend-chip" style="background:rgba(192,57,43,0.45);">Fake-sounding</span>'
+        '<span class="legend-chip" style="background:rgba(39,174,96,0.45);">Real-sounding</span>'
+        '<span style="font-size:12px; color:#777;">Darker shade = stronger influence</span>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="highlight-box">{highlight_review_html(review_input, model, vectorizer)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- Red flags (rule-based) ----
+    flags = find_red_flags(review_input)
+    st.markdown("#### 🚩 Red-flag check")
+    if flags:
+        for f in flags:
+            st.markdown(f'<div class="flag-box">🚩 {html.escape(f)}</div>', unsafe_allow_html=True)
+        st.caption("These are simple rule-based warnings. They work alongside the ML model, they don't replace it.")
+    else:
+        st.success("✅ No suspicious writing patterns found.")
+
+    # ---- Word-level explanation ----
+    fake_words, real_words = explain_review(review_input, model, vectorizer)
+    st.markdown("#### 🧠 Why did the model decide this?")
+    wc1, wc2 = st.columns(2)
+    with wc1:
+        st.write("**Words pushing toward FAKE:**")
+        if fake_words:
+            for w, score in fake_words:
+                st.write(f"🔴 `{w}`  (+{score:.3f})")
+        else:
+            st.write("_None found_")
+    with wc2:
+        st.write("**Words pushing toward REAL:**")
+        if real_words:
+            for w, score in real_words:
+                st.write(f"🟢 `{w}`  ({score:.3f})")
+        else:
+            st.write("_None found_")
+
+
 def review_checker_page():
     st.markdown('<h1 class="hero-title">🔍 Review Checker</h1>', unsafe_allow_html=True)
     st.write("Paste a product review below and the model will predict whether it looks **Real** or **Fake**.")
@@ -662,59 +875,18 @@ def review_checker_page():
     if st.button("🔍 Check Review", type="primary"):
         if review_input.strip() == "":
             st.warning("⚠️ Please enter a review first.")
+            st.session_state.pop("rc_result", None)
         else:
             label, confidence, prediction = predict_review(review_input, model, vectorizer)
             log_to_sheet(review_input, label, round(confidence, 1))
+            st.session_state.rc_result = {
+                "review": review_input, "label": label,
+                "confidence": confidence, "prediction": int(prediction), "fb": None,
+            }
 
-            st.markdown("---")
-            if prediction == 1:
-                st.error(f"### ❌ {label}")
-            else:
-                st.success(f"### ✅ {label}")
-            st.metric("Model Confidence", f"{confidence:.1f}%")
-            st.progress(confidence / 100)
-
-            # ---- Highlighted review ----
-            st.markdown("#### 🖍️ Your review, highlighted")
-            st.markdown(
-                '<span class="legend-chip" style="background:rgba(192,57,43,0.45);">Fake-sounding</span>'
-                '<span class="legend-chip" style="background:rgba(39,174,96,0.45);">Real-sounding</span>'
-                '<span style="font-size:12px; color:#777;">Darker shade = stronger influence</span>',
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f'<div class="highlight-box">{highlight_review_html(review_input, model, vectorizer)}</div>',
-                unsafe_allow_html=True,
-            )
-
-            # ---- Red flags (rule-based) ----
-            flags = find_red_flags(review_input)
-            st.markdown("#### 🚩 Red-flag check")
-            if flags:
-                for f in flags:
-                    st.markdown(f'<div class="flag-box">🚩 {html.escape(f)}</div>', unsafe_allow_html=True)
-                st.caption("These are simple rule-based warnings. They work alongside the ML model, they don't replace it.")
-            else:
-                st.success("✅ No suspicious writing patterns found.")
-
-            # ---- Word-level explanation ----
-            fake_words, real_words = explain_review(review_input, model, vectorizer)
-            st.markdown("#### 🧠 Why did the model decide this?")
-            wc1, wc2 = st.columns(2)
-            with wc1:
-                st.write("**Words pushing toward FAKE:**")
-                if fake_words:
-                    for w, score in fake_words:
-                        st.write(f"🔴 `{w}`  (+{score:.3f})")
-                else:
-                    st.write("_None found_")
-            with wc2:
-                st.write("**Words pushing toward REAL:**")
-                if real_words:
-                    for w, score in real_words:
-                        st.write(f"🟢 `{w}`  ({score:.3f})")
-                else:
-                    st.write("_None found_")
+    res = st.session_state.get("rc_result")
+    if res:
+        render_review_result(res, model, vectorizer)
     st.markdown('</div>', unsafe_allow_html=True)
 
     with st.expander("💡 Try these sample reviews"):
@@ -795,6 +967,14 @@ def analyze_product(reviews, product_name, model, vectorizer, skipped=0):
         "red flags": [len(f) for f in flags_list],
     })
 
+    # Save these checks to the history/dashboard too (one fast request)
+    log_many_to_sheet([
+        {"review": r,
+         "prediction": "Fake (Computer Generated)" if f else "Real (Genuine)",
+         "confidence": round(float(max(pr, 1 - pr)) * 100, 1)}
+        for r, f, pr in zip(reviews, is_fake, fake_prob)
+    ])
+
     st.markdown("#### 🔎 Most suspicious reviews")
     top = result_df.sort_values("fake probability (%)", ascending=False).head(3)
     for _, row in top.iterrows():
@@ -870,11 +1050,12 @@ def trust_score_page():
 # ============================================================
 def run_batch_predictions(review_list, model, vectorizer):
     results = []
+    logs = []
     progress = st.progress(0)
     total = len(review_list)
     for i, text in enumerate(review_list):
         label, confidence, _ = predict_review(text, model, vectorizer)
-        log_to_sheet(text, label, round(confidence, 1))
+        logs.append({"review": text, "prediction": label, "confidence": round(confidence, 1)})
         results.append({
             "review": text,
             "prediction": label,
@@ -882,6 +1063,7 @@ def run_batch_predictions(review_list, model, vectorizer):
             "red flags": len(find_red_flags(text)),
         })
         progress.progress((i + 1) / total)
+    log_many_to_sheet(logs)
     return pd.DataFrame(results)
 
 
@@ -1048,6 +1230,18 @@ def my_history_page():
 # ============================================================
 # DASHBOARD PAGE (admin only, reads from Google Sheet)
 # ============================================================
+def prepare_logs(df):
+    """Adds proper date/time and numeric columns to the raw log table (times shown in IST)."""
+    d = df.copy()
+    if "user" not in d.columns:
+        d["user"] = "unknown"
+    d["user"] = d["user"].astype(str)
+    d["ts"] = pd.to_datetime(d["timestamp"], errors="coerce", utc=True).dt.tz_convert("Asia/Kolkata")
+    d["is_fake"] = d["prediction"].astype(str).str.contains("Fake")
+    d["confidence_num"] = pd.to_numeric(d["confidence"], errors="coerce")
+    return d
+
+
 def dashboard_page():
     st.markdown('<h1 class="hero-title">📈 Admin Dashboard</h1>', unsafe_allow_html=True)
 
@@ -1058,7 +1252,7 @@ def dashboard_page():
             st.session_state.page = "Home"; st.rerun()
         return
 
-    st.write("All-time statistics logged from every review checked on this system.")
+    st.write("Statistics from every review checked on this system.")
 
     if not get_apps_script_url():
         st.warning(
@@ -1096,35 +1290,148 @@ def dashboard_page():
     elif len(df) == 0:
         st.info("No reviews have been logged yet. Go check a few reviews first!")
     else:
-        total = len(df)
-        fake_count = df["prediction"].astype(str).str.contains("Fake").sum()
-        real_count = total - fake_count
+        d_all = prepare_logs(df)
 
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total Reviews Checked", total)
-        c2.metric("Fake Detected", int(fake_count))
-        c3.metric("Real Detected", int(real_count))
-        st.markdown('</div>', unsafe_allow_html=True)
+        period = st.radio("📅 Period", ["Last 7 days", "Last 30 days", "All time"],
+                          index=1, horizontal=True)
+        now = pd.Timestamp.now(tz="Asia/Kolkata")
+        d = d_all
+        if period == "Last 7 days":
+            d = d_all[d_all["ts"] >= now - pd.Timedelta(days=7)]
+        elif period == "Last 30 days":
+            d = d_all[d_all["ts"] >= now - pd.Timedelta(days=30)]
 
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
-        st.subheader("Fake vs Real Distribution")
-        fig, ax = plt.subplots(figsize=(4, 4))
-        ax.pie(
-            [fake_count, real_count],
-            labels=["Fake", "Real"],
-            autopct="%1.1f%%",
-            colors=["#C0392B", "#27AE60"],
-            startangle=90,
-        )
-        ax.axis("equal")
-        st.pyplot(fig)
-        st.markdown('</div>', unsafe_allow_html=True)
+        if len(d) == 0:
+            st.info(f"No reviews were checked in this period ({period.lower()}). Try 'All time'.")
+        else:
+            total = len(d)
+            fake_count = int(d["is_fake"].sum())
+            real_count = total - fake_count
+            today_count = int((d["ts"].dt.date == now.date()).sum())
 
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
-        st.subheader("Recent Activity")
-        st.dataframe(df.sort_values("timestamp", ascending=False).head(15))
-        st.markdown('</div>', unsafe_allow_html=True)
+            # ---------- Key numbers ----------
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Reviews Checked", total)
+            c2.metric("Fake Detected", fake_count)
+            c3.metric("Real Detected", real_count)
+            c4, c5, c6 = st.columns(3)
+            c4.metric("Fake %", f"{fake_count / total * 100:.1f}%")
+            c5.metric("Active Users", int(d["user"].nunique()))
+            c6.metric("Checked Today", today_count)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ---------- Daily trend ----------
+            dd = d.dropna(subset=["ts"]).copy()
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.subheader("📅 Daily Trend")
+            if len(dd) == 0:
+                st.info("Dates are not available for these rows, so the trend cannot be drawn.")
+            else:
+                dd["day"] = dd["ts"].dt.normalize()
+                daily = dd.groupby(["day", "is_fake"]).size().unstack(fill_value=0)
+                for col in (True, False):
+                    if col not in daily.columns:
+                        daily[col] = 0
+                full_range = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
+                daily = daily.reindex(full_range, fill_value=0)
+                labels = [x.strftime("%d %b") for x in daily.index]
+                xs = list(range(len(labels)))
+                step = max(1, len(labels) // 10)
+
+                fig_a, ax_a = plt.subplots(figsize=(7, 3.2))
+                ax_a.bar(xs, daily[False], color="#27AE60", label="Real")
+                ax_a.bar(xs, daily[True], bottom=daily[False], color="#C0392B", label="Fake")
+                ax_a.set_xticks(xs[::step])
+                ax_a.set_xticklabels(labels[::step], rotation=45, ha="right")
+                ax_a.set_ylabel("Reviews checked")
+                ax_a.set_title("Reviews checked per day")
+                ax_a.legend()
+                fig_a.tight_layout()
+                st.pyplot(fig_a)
+
+                day_total = daily[True] + daily[False]
+                fake_pct = (daily[True] / day_total.where(day_total > 0) * 100)
+                fig_b, ax_b = plt.subplots(figsize=(7, 3.0))
+                ax_b.plot(xs, fake_pct.values, marker="o", color="#C0392B")
+                ax_b.set_ylim(0, 100)
+                ax_b.set_xticks(xs[::step])
+                ax_b.set_xticklabels(labels[::step], rotation=45, ha="right")
+                ax_b.set_ylabel("Fake %")
+                ax_b.set_title("Share of fake reviews per day")
+                ax_b.grid(alpha=0.3)
+                fig_b.tight_layout()
+                st.pyplot(fig_b)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ---------- Top users ----------
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.subheader("🏆 Most Active Users")
+            g = d.groupby("user").agg(checks=("is_fake", "size"), fake=("is_fake", "sum")).reset_index()
+            g["fake %"] = (g["fake"] / g["checks"] * 100).round(1)
+            top = g.sort_values("checks", ascending=False).head(5)
+            fig_u, ax_u = plt.subplots(figsize=(7, 0.8 + 0.5 * len(top)))
+            ax_u.barh(top["user"][::-1], top["checks"][::-1], color="#2E86C1")
+            ax_u.set_xlabel("Reviews checked")
+            fig_u.tight_layout()
+            st.pyplot(fig_u)
+            st.dataframe(top.rename(columns={"user": "user", "checks": "reviews checked", "fake": "fake found"}))
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ---------- Fake vs Real pie ----------
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.subheader("Fake vs Real Distribution")
+            fig, ax = plt.subplots(figsize=(4, 4))
+            if fake_count == 0 or real_count == 0:
+                ax.pie([1], labels=["Fake" if fake_count else "Real"],
+                       colors=["#C0392B" if fake_count else "#27AE60"])
+            else:
+                ax.pie([fake_count, real_count], labels=["Fake", "Real"], autopct="%1.1f%%",
+                       colors=["#C0392B", "#27AE60"], startangle=90)
+            ax.axis("equal")
+            st.pyplot(fig)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ---------- Recent activity ----------
+            st.markdown('<div class="info-box">', unsafe_allow_html=True)
+            st.subheader("Recent Activity")
+            recent = d.sort_values("ts", ascending=False).head(15)[["ts", "review", "prediction", "confidence", "user"]].copy()
+            recent["ts"] = recent["ts"].dt.strftime("%d %b %Y, %I:%M %p")
+            st.dataframe(recent.rename(columns={"ts": "time (IST)"}))
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    # ---------- User feedback (always shown, independent of the period filter) ----------
+    st.markdown('<div class="info-box">', unsafe_allow_html=True)
+    st.subheader("💬 User Feedback on Predictions")
+    admin_key = get_admin_key()
+    if not admin_key:
+        st.info("Add `ADMIN_KEY` to Streamlit secrets to see user feedback here.")
+    else:
+        fb = get_feedback_data(admin_key)
+        if fb is None:
+            st.error("❌ Could not load feedback. Check that ADMIN_KEY matches in Code.gs and Streamlit secrets.")
+        elif len(fb) == 0:
+            st.info("No feedback yet. Users can rate predictions with 👍 / 👎 on the Review Checker page.")
+        else:
+            n = len(fb)
+            correct_n = int((fb["verdict"].astype(str) == "correct").sum())
+            wrong_n = n - correct_n
+            f1, f2, f3 = st.columns(3)
+            f1.metric("Feedback Received", n)
+            f2.metric("Marked Correct 👍", correct_n)
+            f3.metric("Marked Wrong 👎", wrong_n)
+            st.progress(correct_n / n)
+            st.caption(f"User-rated accuracy: **{correct_n / n * 100:.1f}%** "
+                       "(based on users who chose to give feedback, so it is only an estimate).")
+
+            wrong = fb[fb["verdict"].astype(str) == "wrong"]
+            if len(wrong):
+                st.markdown("**Predictions users said were wrong:**")
+                st.dataframe(wrong[["review", "model_said", "actual_label", "user"]])
+            csv_fb = fb.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download all feedback (CSV) — for retraining the model",
+                               csv_fb, "user_feedback.csv", "text/csv")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "Home"; st.rerun()
