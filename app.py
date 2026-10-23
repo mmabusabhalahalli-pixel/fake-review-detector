@@ -3,12 +3,14 @@ import joblib
 import re
 import os
 import html
+from datetime import datetime, timedelta
 import io
 import csv
 from collections import Counter
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from wordcloud import WordCloud
 import requests
 
@@ -790,6 +792,7 @@ def home_page():
     quick_links = [
         ("🔍 Review Checker", "Review Checker", True),
         ("🛡️ Trust Score", "Product Trust Score", True),
+        ("💰 Price Prediction", "Price Prediction", True),
         ("📂 Batch Checker", "Batch Checker", False),
         ("📊 Insights", "Insights", False),
         ("🕘 My History", "My History", False),
@@ -1074,6 +1077,452 @@ def trust_score_page():
                     st.warning("⚠️ No review text found in that column.")
                 else:
                     analyze_product(reviews, product_name, model, vectorizer, skipped)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if st.button("⬅️ Back to Home"):
+        st.session_state.page = "Home"; st.rerun()
+
+
+# ============================================================
+# PRICE PREDICTION PAGE (new)
+# ============================================================
+# The page works on a price HISTORY given by the user (pasted or CSV).
+# It cannot read live prices from shopping sites.
+
+DATE_LINE_RE = re.compile(r"^\s*(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(.*)$")
+
+# Typical sale periods in India (a general pattern, the exact dates change every year)
+SALE_SEASONS = [
+    ("End-of-season sale (fashion & lifestyle)", (1, 1), (1, 31)),
+    ("Republic Day sales", (1, 15), (1, 26)),
+    ("Summer sale", (4, 15), (5, 31)),
+    ("End-of-season sale (fashion & lifestyle)", (6, 20), (7, 31)),
+    ("Mid-year mega sale (e.g. Prime Day)", (7, 10), (7, 25)),
+    ("Independence Day sales", (8, 1), (8, 15)),
+    ("Festive & Diwali season (Big Billion Days, Great Indian Festival)", (9, 20), (11, 15)),
+    ("Black Friday / Cyber Monday", (11, 20), (12, 2)),
+    ("Year-end sale", (12, 15), (12, 31)),
+]
+
+
+def parse_price(text):
+    """'₹1,499.00' -> 1499.0, 'Rs. 999' -> 999.0, nonsense -> None."""
+    if re.match(r"^\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b", str(text)):
+        return None                       # looks like a date, not a price
+    m = re.search(r"\d[\d,]*(?:\.\d+)?", str(text))
+    if not m:
+        return None
+    try:
+        value = float(m.group(0).replace(",", ""))
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def parse_date_text(text):
+    """Reads 2026-09-15, 15-09-2026, 15/09/2026, 15.09.26 (day first, like in India)."""
+    t = re.sub(r"[/.]", "-", str(text).strip())
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d-%m-%y"):
+        try:
+            return datetime.strptime(t, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def today_midnight():
+    return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def dates_ending_today(n):
+    t = today_midnight()
+    return [t - timedelta(days=n - 1 - i) for i in range(n)]
+
+
+def parse_price_history(text, price_only=False):
+    """Pasted text -> (DataFrame[date, price], list of lines that could not be read)."""
+    rows, bad = [], []
+    for raw in str(text).splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if price_only:
+            price = parse_price(line)
+            if price is None:
+                bad.append(line)
+            else:
+                rows.append((None, price))
+            continue
+        m = DATE_LINE_RE.match(line)
+        date = parse_date_text(m.group(1)) if m else None
+        price = parse_price(m.group(2).lstrip(" ,;|:\t")) if m else None
+        if date is None or price is None:
+            bad.append(line)
+        else:
+            rows.append((date, price))
+    if price_only and rows:
+        dates = dates_ending_today(len(rows))
+        rows = [(d, p) for d, (_, p) in zip(dates, rows)]
+    return pd.DataFrame(rows, columns=["date", "price"]), bad
+
+
+def history_from_table(df, date_col, price_col):
+    """Uploaded CSV -> (DataFrame[date, price], count of unreadable rows)."""
+    prices = [parse_price(v) for v in df[price_col].tolist()]
+    if date_col is None:
+        keep = [p for p in prices if p is not None]
+        out = pd.DataFrame({"date": dates_ending_today(len(keep)), "price": keep})
+        return out, len(prices) - len(keep)
+    rows, bad = [], 0
+    for raw_date, price in zip(df[date_col].tolist(), prices):
+        d = parse_date_text(str(raw_date).split(" ")[0].split("T")[0])
+        if d is None:
+            parsed = pd.to_datetime(raw_date, dayfirst=True, errors="coerce")
+            d = None
+            if not pd.isna(parsed) and 2000 <= parsed.year <= datetime.now().year + 1:
+                d = parsed.to_pydatetime().replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
+        if d is None or price is None:
+            bad += 1
+        else:
+            rows.append((d, price))
+    return pd.DataFrame(rows, columns=["date", "price"]), bad
+
+
+def sale_season_info(today):
+    """Which typical sale season is on now, and which one comes next."""
+    active, upcoming = [], []
+    for name, (sm, sd), (em, ed) in SALE_SEASONS:
+        for year in (today.year, today.year + 1):
+            start, end = datetime(year, sm, sd), datetime(year, em, ed)
+            if start <= today <= end:
+                if name not in [a for a, _ in active]:
+                    active.append((name, end))
+            elif start > today:
+                upcoming.append((start, name))
+    upcoming.sort()
+    return active, upcoming
+
+
+def analyze_prices(df):
+    """All the numbers the page shows. df has columns date, price (any order)."""
+    d = df.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+    prices = d["price"].astype(float).values
+    n = len(d)
+    cur = float(prices[-1])
+    mn, mx, avg = float(prices.min()), float(prices.max()), float(prices.mean())
+    last_date = d["date"].iloc[-1]
+    span_days = (last_date - d["date"].iloc[0]).days
+    pct = float((prices <= cur).mean() * 100)
+
+    res = {
+        "d": d, "n": n, "current": cur, "min": mn, "max": mx, "avg": avg,
+        "min_date": d.loc[d["price"].idxmin(), "date"], "max_date": d.loc[d["price"].idxmax(), "date"],
+        "last_date": last_date, "span_days": span_days, "percentile": pct,
+        "range_pos": (cur - mn) / (mx - mn) * 100 if mx > mn else 50.0,
+        "above_min": (cur - mn) / mn * 100 if mn else 0.0,
+        "vs_avg": (cur - avg) / avg * 100 if avg else 0.0,
+        "can_forecast": n >= 5 and span_days >= 7,
+        "proj": {}, "trend30": None,
+    }
+
+    ago = d[d["date"] <= last_date - timedelta(days=30)]
+    res["price_30_ago"] = (float(ago["price"].iloc[-1]), ago["date"].iloc[-1]) if len(ago) else None
+
+    if n >= 2:
+        change = np.diff(prices) / prices[:-1] * 100
+        drops = change[change <= -8]
+        res["n_drops"] = int(len(drops))
+        res["avg_drop"] = float(-drops.mean()) if len(drops) else 0.0
+    else:
+        res["n_drops"], res["avg_drop"] = 0, 0.0
+
+    if res["can_forecast"]:
+        # Trend from the most recent prices: last 14 days, or 30 / 60 days / everything if there are
+        # fewer than 5 points. Uses the MEDIAN of all pairwise slopes (Theil-Sen), so one big sale
+        # drop in the past does not make a price that is now flat look like it is "falling".
+        w = d
+        for days in (14, 30, 60):
+            w = d[d["date"] >= last_date - timedelta(days=days)]
+            if len(w) >= 5:
+                break
+        else:
+            w = d
+        w = w.tail(60)
+        x = (w["date"] - w["date"].iloc[0]).dt.total_seconds().values / 86400.0
+        y = w["price"].values.astype(float)
+        pair_slopes = [(y[j] - y[i]) / (x[j] - x[i])
+                       for i in range(len(x)) for j in range(i + 1, len(x)) if x[j] != x[i]]
+        slope = float(np.median(pair_slopes)) if pair_slopes else 0.0
+        intercept = float(np.median(y - slope * x))
+        resid = y - (slope * x + intercept)
+        sigma = float(resid.std(ddof=1)) if len(w) > 1 else 0.0
+        res["slope_per_day"] = float(slope)
+        for h in (7, 15, 30):
+            est = cur + slope * h                       # start from today's real price
+            est = float(min(max(est, mn * 0.9), mx * 1.1))
+            band = max(1.28 * sigma * (1 + h / 60.0), 0.02 * cur)   # ~80% range, wider further away
+            res["proj"][h] = (est, max(est - band, 0.0), est + band)
+        res["trend30"] = (res["proj"][30][0] - cur) / cur * 100
+
+    res["verdict"] = price_verdict(res)
+    return res
+
+
+def price_verdict(res):
+    cur, mn, mx, t30 = res["current"], res["min"], res["max"], res["trend30"]
+    pos = res["range_pos"]                                  # 0 = at the lowest, 100 = at the highest
+    near_low = cur <= mn * 1.03
+    stable = mn > 0 and (mx - mn) / mn < 0.03        # moved less than 3% in the whole period
+    GREEN = "linear-gradient(145deg, #27AE60, #1E8449)"
+    LIGHT = "linear-gradient(145deg, #52BE80, #229954)"
+    ORANGE = "linear-gradient(145deg, #E67E22, #CA6F1E)"
+    RED = "linear-gradient(145deg, #C0392B, #922B21)"
+    note = "" if t30 is not None else " (based only on past prices, there is not enough data for a forecast yet)"
+    rng = f"₹{mn:,.0f} – ₹{mx:,.0f}"
+
+    if stable:
+        return {"label": "Fair price", "icon": "⚖️", "bg": ORANGE, "code": "fair",
+                "reason": f"The price has hardly changed in this period, so there is no clear best moment.{note}"}
+    if near_low and (t30 is None or t30 > -5):
+        return {"label": "Buy now", "icon": "✅", "bg": GREEN, "code": "buy",
+                "reason": f"Today's price is within 3% of the lowest price seen (₹{mn:,.0f}).{note}"}
+    if t30 is not None and t30 <= -5:
+        return {"label": "Wait", "icon": "⏳", "bg": RED, "code": "wait",
+                "reason": f"The price has been falling and may drop about {abs(t30):.0f}% in the next 30 days."}
+    if pos >= 70:
+        return {"label": "Wait", "icon": "⏳", "bg": RED, "code": "wait",
+                "reason": f"Today's price is near the high end of its range ({rng}). It was cheaper before.{note}"}
+    if pos <= 30:
+        return {"label": "Good time to buy", "icon": "👍", "bg": LIGHT, "code": "good",
+                "reason": f"Today's price is in the lower part of its range ({rng}) and is not expected to fall much more.{note}"}
+    return {"label": "Fair price", "icon": "⚖️", "bg": ORANGE, "code": "fair",
+            "reason": f"The price is around the middle of its range ({rng}). No strong reason to rush or to wait.{note}"}
+
+
+def quick_trust(reviews, model, vectorizer):
+    """Same Trust Score formula as the Product Trust Score page."""
+    fake_prob, is_fake = predict_many(reviews, model, vectorizer)
+    return int(round((1 - float(fake_prob.mean())) * 100)), int(is_fake.sum()), len(reviews)
+
+
+def draw_price_chart(res):
+    d = res["d"]
+    dates = list(d["date"].dt.to_pydatetime())
+    fig, ax = plt.subplots(figsize=(7, 3.6))
+    ax.plot(dates, d["price"], color="#2E86C1", linewidth=2,
+            marker="o" if len(d) <= 40 else None, label="Past price")
+    ax.axhline(res["min"], color="#27AE60", linestyle="--", linewidth=1, label="Lowest")
+    ax.axhline(res["avg"], color="#7F8C8D", linestyle=":", linewidth=1, label="Average")
+    if res["can_forecast"]:
+        last = dates[-1]
+        fx = [last] + [last + timedelta(days=h) for h in (7, 15, 30)]
+        fy = [res["current"]] + [res["proj"][h][0] for h in (7, 15, 30)]
+        lo = [res["current"]] + [res["proj"][h][1] for h in (7, 15, 30)]
+        hi = [res["current"]] + [res["proj"][h][2] for h in (7, 15, 30)]
+        ax.plot(fx, fy, color="#E67E22", linestyle="--", marker="o", label="Estimate")
+        ax.fill_between(fx, lo, hi, color="#E67E22", alpha=0.18, label="Likely range")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
+    fig.autofmt_xdate()
+    ax.set_ylabel("Price (Rs)")
+    ax.grid(alpha=0.25)
+    ax.legend(fontsize=8, loc="best")
+    fig.tight_layout()
+    return fig
+
+
+def render_price_result(res, product_name, trust):
+    v = res["verdict"]
+    title = html.escape(product_name.strip()) if product_name.strip() else "This product"
+    st.markdown(
+        f"""<div class="score-card" style="background:{v['bg']};">
+        <div style="font-size:15px; opacity:0.9;">{title}</div>
+        <div class="score-number">₹{res['current']:,.0f}</div>
+        <div class="score-label">{v['icon']} {v['label']}</div>
+        <div class="score-sub">{html.escape(v['reason'])}</div></div>""",
+        unsafe_allow_html=True,
+    )
+
+    # ---- trust of the reviews (optional)
+    if trust is not None:
+        score, fake_n, total = trust
+        if score < 50:
+            st.markdown(
+                f'<div class="flag-box">⚠️ <b>Review Trust Score: {score}/100</b> — {fake_n} of {total} reviews look fake. '
+                f'Be careful with this product even if the price looks good.</div>', unsafe_allow_html=True)
+        elif score < 75:
+            st.markdown(
+                f'<div class="flag-box">⚠️ <b>Review Trust Score: {score}/100</b> — some reviews look fake '
+                f'({fake_n} of {total}). Read the reviews carefully.</div>', unsafe_allow_html=True)
+        else:
+            st.success(f"✅ Review Trust Score: {score}/100 — the reviews look mostly genuine ({fake_n} of {total} flagged).")
+        if score >= 75 and v["code"] in ("buy", "good"):
+            st.success("👍 Price and reviews both look good.")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Today", f"₹{res['current']:,.0f}")
+    c2.metric("Lowest", f"₹{res['min']:,.0f}", delta=f"{res['above_min']:.1f}% above" if res["above_min"] > 0.05 else "at lowest",
+              delta_color="off")
+    c3.metric("Highest", f"₹{res['max']:,.0f}")
+    c4.metric("Average", f"₹{res['avg']:,.0f}")
+
+    # ---- what it was
+    st.markdown("#### 🕘 What the price was")
+    d = res["d"]
+    first = d.iloc[0]
+    rows = [("First recorded", f"₹{first['price']:,.0f}", first["date"].strftime("%d %b %Y"))]
+    if res["price_30_ago"]:
+        p30, d30 = res["price_30_ago"]
+        rows.append(("About 30 days ago", f"₹{p30:,.0f}", d30.strftime("%d %b %Y")))
+    rows += [
+        ("Lowest", f"₹{res['min']:,.0f}", res["min_date"].strftime("%d %b %Y")),
+        ("Highest", f"₹{res['max']:,.0f}", res["max_date"].strftime("%d %b %Y")),
+        ("Average", f"₹{res['avg']:,.0f}", f"{res['n']} prices"),
+        ("Today", f"₹{res['current']:,.0f}", res["last_date"].strftime("%d %b %Y")),
+    ]
+    st.dataframe(pd.DataFrame(rows, columns=["", "Price", "When"]))
+    if res["n_drops"]:
+        st.caption(f"📉 The price dropped by 8% or more {res['n_drops']} time(s) in this period "
+                   f"(about {res['avg_drop']:.0f}% each time), which looks like sale offers.")
+    else:
+        st.caption("The price did not have any big drops (8% or more) in this period.")
+
+    # ---- what it may be
+    st.markdown("#### 🔮 What it may be")
+    if res["can_forecast"]:
+        table = []
+        for h in (7, 15, 30):
+            est, lo, hi = res["proj"][h]
+            table.append({
+                "In": f"{h} days",
+                "Estimated price": f"₹{est:,.0f}",
+                "Likely range": f"₹{lo:,.0f} – ₹{hi:,.0f}",
+                "Change vs today": f"{(est - res['current']) / res['current'] * 100:+.1f}%",
+            })
+        st.dataframe(pd.DataFrame(table))
+        st.caption("The likely range is where the price should be about 8 times out of 10 if the recent pattern continues. "
+                   "It gets wider further into the future.")
+    else:
+        st.info("To see a forecast, add at least 5 prices that cover 7 days or more.")
+
+    st.pyplot(draw_price_chart(res))
+
+    # ---- sale seasons
+    active, upcoming = sale_season_info(today_midnight())
+    st.markdown("#### 🎉 Sale seasons")
+    if active:
+        names = " and ".join(name for name, _ in active)
+        st.write(f"**Right now:** {names}. Discounts are common in this period, so check that today's price "
+                 f"is close to the lowest price seen (₹{res['min']:,.0f}).")
+    if upcoming:
+        start, name = upcoming[0]
+        days = (start - today_midnight()).days
+        st.write(f"**Next usual sale:** {name}, in about {days} day(s). "
+                 + ("Waiting for it may get you a lower price." if res["verdict"]["code"] in ("wait", "fair") else ""))
+    st.caption("These are usual sale periods in India, not guaranteed. Exact dates change every year.")
+
+    st.caption("⚠️ This is an estimate from past prices only. Real prices also depend on sales, stock and the seller. "
+               "It is a guide, not a promise.")
+
+
+def run_price_analysis(df, product_name, current_price, reviews_text):
+    df = df.dropna()
+    if len(df) < 3:
+        st.warning("⚠️ Please give at least 3 prices (with dates) so that something useful can be shown.")
+        return
+    today = today_midnight()
+    if (df["date"] > today + timedelta(days=1)).any():
+        st.warning("⚠️ Some dates are in the future. Please check the date format "
+                   "(use YYYY-MM-DD, like 2026-09-15, or day-month-year like 15-09-2026).")
+
+    df = df.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+    if current_price and current_price > 0:
+        last = df["date"].iloc[-1]
+        if last.date() == today.date():
+            df.loc[df.index[-1], "price"] = float(current_price)
+        elif last < today:
+            df.loc[len(df)] = [today, float(current_price)]
+
+    res = analyze_prices(df)
+
+    trust = None
+    reviews, _ = normalize_reviews(str(reviews_text).split("\n"))
+    if reviews:
+        model, vectorizer = load_model()
+        trust = quick_trust(reviews, model, vectorizer)
+
+    render_price_result(res, product_name, trust)
+
+
+def price_prediction_page():
+    st.markdown('<h1 class="hero-title">💰 Price Prediction</h1>', unsafe_allow_html=True)
+    st.write("Check what a product's price **was**, what it **may be** in the next 7, 15 and 30 days, "
+             "and whether it is a good time to buy.")
+
+    with st.expander("ℹ️ How does this work? Where do I get the price history?"):
+        st.write(
+            "Shopping sites do not allow other apps to read their live prices, so you give the app the product's "
+            "**price history**. Many free price-tracker websites (for example PriceHistory, PriceBefore, or Keepa for Amazon) "
+            "show a product's past prices. Copy a few dates and prices from there.\n\n"
+            "The app then finds the lowest, highest and average price, looks at the recent trend, and gives an "
+            "**estimate** for the coming weeks with a likely range. It never promises a price."
+        )
+        st.code("2026-09-01, 2499\n2026-09-10, 2499\n2026-09-20, 2299\n2026-09-28, 1999\n"
+                "2026-10-05, 1899\n2026-10-12, 1949\n2026-10-18, 1799\n2026-10-22, 1749", language="text")
+        st.caption("One price per line: date, then price. Dates can be 2026-09-15 or 15-09-2026 (day first).")
+
+    product_name = st.text_input("🏷️ Product name (optional)", placeholder="e.g. boAt Airdopes 141", key="pp_name")
+    current_in = st.number_input(
+        "💵 Today's price in ₹ (optional)", min_value=0.0, value=0.0, step=1.0, key="pp_cur",
+        help="Leave 0 to use the last price in your list as today's price.")
+
+    with st.expander("➕ Also check the product's reviews (optional)"):
+        reviews_text = st.text_area("Paste reviews of this product, one per line:", height=140, key="pp_reviews")
+        st.caption("Adds a Review Trust Score to the advice, so you also know if the reviews can be trusted.")
+
+    tab1, tab2 = st.tabs(["📋 Paste price history", "📁 Upload CSV"])
+
+    with tab1:
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        price_only = st.checkbox("My list has only prices (one per day, oldest first, the last one is today)",
+                                 key="pp_only")
+        pasted = st.text_area(
+            "Price history (one per line):", height=200, key="pp_paste",
+            placeholder="2026-09-01, 2499\n2026-09-20, 2299\n2026-10-05, 1899\n...")
+        if st.button("📈 Predict Price", type="primary", key="pp_btn_paste"):
+            df, bad = parse_price_history(pasted, price_only)
+            if bad:
+                st.warning(f"⚠️ I could not read {len(bad)} line(s), for example: `{bad[0][:60]}`")
+            if df.empty:
+                if bad and not price_only:
+                    st.error("❌ I could not find dates in your list. If it has only prices, tick the box above.")
+                else:
+                    st.warning("⚠️ Please paste your price history first.")
+            else:
+                run_price_analysis(df, product_name, current_in, reviews_text)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with tab2:
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        up = st.file_uploader("Upload CSV file", type=["csv"], key="pp_csv")
+        if up is not None:
+            try:
+                table = pd.read_csv(up, dtype=str, keep_default_na=False)
+            except Exception:
+                table = None
+                st.error("❌ Could not read this file as a CSV.")
+            if table is not None and len(table.columns):
+                st.dataframe(table.head())
+                none_label = "(none — one price per day, oldest first)"
+                date_choice = st.selectbox("Column with the date:", [none_label] + list(table.columns), key="pp_datecol")
+                price_col = st.selectbox("Column with the price:", list(table.columns), key="pp_pricecol")
+                if st.button("📈 Predict Price", type="primary", key="pp_btn_csv"):
+                    df, bad = history_from_table(table, None if date_choice == none_label else date_choice, price_col)
+                    if bad:
+                        st.warning(f"⚠️ {bad} row(s) could not be read and were skipped.")
+                    if df.empty:
+                        st.error("❌ No usable prices found. Check the date and price columns you selected.")
+                    else:
+                        run_price_analysis(df, product_name, current_in, reviews_text)
         st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
@@ -1642,7 +2091,7 @@ else:
     st.sidebar.title("📂 Navigation")
 
     # Pages visible depend on role: only admins see the Dashboard.
-    pages = ["Home", "Review Checker", "Product Trust Score", "Batch Checker", "Insights", "My History"]
+    pages = ["Home", "Review Checker", "Product Trust Score", "Price Prediction", "Batch Checker", "Insights", "My History"]
     if is_admin():
         pages.append("Dashboard")
         pages.append("Manage Users")
@@ -1668,6 +2117,8 @@ else:
         review_checker_page()
     elif st.session_state.page == "Product Trust Score":
         trust_score_page()
+    elif st.session_state.page == "Price Prediction":
+        price_prediction_page()
     elif st.session_state.page == "Batch Checker":
         batch_checker_page()
     elif st.session_state.page == "Insights":
