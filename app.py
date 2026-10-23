@@ -18,95 +18,152 @@ import requests
 st.set_page_config(
     page_title="Fake Review Detector",
     page_icon="🕵️",
-    layout="centered"
+    layout="wide"
 )
 
-# ---------- Global 3D / Attractive Styling ----------
-st.markdown("""
-<style>
-.stApp { background: linear-gradient(135deg, #f0f4f8 0%, #d9e6f5 100%); }
+# ---------- Themes (colours of the whole app) ----------
+# "brand_dark" and "accent" are used behind/under white or dark text, so they are dark enough to read easily.
+THEMES = {
+    "Premium Trust": dict(bg1="#F8FAFC", bg2="#E8F5F2", soft="#F0FDFA", ink="#0B1220",
+                          brand="#14B8A6", brand_dark="#0F766E", accent="#14B8A6", accent_dark="#0F766E",
+                          side1="#0B1220", side2="#123B46"),
+    "Royal Blue": dict(bg1="#F0F4F8", bg2="#D9E6F5", soft="#EAF1F8", ink="#1F4E79",
+                       brand="#2E86C1", brand_dark="#1F4E79", accent="#C0392B", accent_dark="#922B21",
+                       side1="#1F4E79", side2="#163A5C"),
+    "Violet Glow": dict(bg1="#F7F3FF", bg2="#E9DDFB", soft="#EFE7FD", ink="#2E1065",
+                        brand="#8B5CF6", brand_dark="#5B21B6", accent="#BE185D", accent_dark="#9D174D",
+                        side1="#2E1065", side2="#4C1D95"),
+}
+DEFAULT_THEME = "Premium Trust"
+
+THEME_TEMPLATE = r"""
+.stApp { background: linear-gradient(135deg, {{bg1}} 0%, {{bg2}} 100%); }
+
+/* ----- cards ----- */
 .platform-card {
     border-radius: 16px; padding: 22px 10px; text-align: center;
-    background: linear-gradient(145deg, #ffffff, #eef2f7);
-    box-shadow: 6px 6px 14px rgba(0,0,0,0.15), -4px -4px 10px rgba(255,255,255,0.7);
+    background: linear-gradient(145deg, #ffffff, {{soft}});
+    box-shadow: 6px 6px 14px rgba(0,0,0,0.12), -4px -4px 10px rgba(255,255,255,0.7);
     transition: transform 0.25s ease, box-shadow 0.25s ease;
     border: 1px solid rgba(0,0,0,0.05);
 }
-.platform-card:hover { transform: translateY(-6px) scale(1.03); box-shadow: 10px 10px 20px rgba(0,0,0,0.2), -6px -6px 14px rgba(255,255,255,0.8); }
+.platform-card:hover { transform: translateY(-6px) scale(1.03); box-shadow: 10px 10px 20px rgba(0,0,0,0.18), -6px -6px 14px rgba(255,255,255,0.8); }
 .platform-icon { font-size: 34px; }
-.platform-name { font-weight: 700; color: #1F4E79; margin-top: 8px; font-size: 15px; }
+.platform-name { font-weight: 700; color: {{ink}}; margin-top: 8px; font-size: 15px; }
 .info-box {
-    background: linear-gradient(145deg, #ffffff, #eef2f7);
-    border-radius: 18px; padding: 24px;
-    box-shadow: 8px 8px 18px rgba(0,0,0,0.12), -6px -6px 14px rgba(255,255,255,0.7);
+    background: linear-gradient(145deg, #ffffff, {{soft}});
+    border-radius: 18px; padding: 24px; border-top: 4px solid {{brand}};
+    box-shadow: 8px 8px 18px rgba(0,0,0,0.10), -6px -6px 14px rgba(255,255,255,0.7);
     margin-bottom: 20px;
 }
 .hero-title {
-    background: linear-gradient(90deg, #1F4E79, #2E86C1);
+    background: linear-gradient(90deg, {{ink}}, {{brand_dark}});
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800;
 }
-div.stButton > button {
-    border-radius: 12px;
-    box-shadow: 4px 4px 10px rgba(0,0,0,0.18), -3px -3px 8px rgba(255,255,255,0.6);
-    transition: transform 0.15s ease; font-weight: 600;
-}
-div.stButton > button:hover { transform: translateY(-2px); }
-.stTextArea textarea, .stTextInput input { border-radius: 10px !important; box-shadow: inset 2px 2px 6px rgba(0,0,0,0.08); }
 .logo-box {
     width: 70px; height: 70px; border-radius: 18px;
-    background: linear-gradient(145deg, #ffffff, #eef2f7);
+    background: linear-gradient(145deg, #ffffff, {{soft}});
     box-shadow: 4px 4px 12px rgba(0,0,0,0.1), -3px -3px 8px rgba(255,255,255,0.8);
     display: flex; align-items: center; justify-content: center;
     font-size: 32px; margin: 0 auto 14px auto;
 }
 .hint-box {
-    background: #EAF1F8; border-radius: 10px; padding: 12px 14px;
-    font-size: 12.5px; color: #5A5A5A; margin-top: 10px;
+    background: {{soft}}; border-left: 4px solid {{brand}}; border-radius: 10px; padding: 12px 14px;
+    font-size: 12.5px; color: #444444; margin-top: 10px;
 }
+
+/* ----- home banner ----- */
+.hero-banner {
+    background: linear-gradient(120deg, {{side1}}, {{side2}} 62%, {{brand_dark}});
+    border-radius: 22px; padding: 28px 26px; margin-bottom: 22px;
+    box-shadow: 8px 8px 20px rgba(0,0,0,0.18);
+}
+.hero-banner-title { color: #ffffff; font-size: 30px; font-weight: 800; line-height: 1.2; margin-bottom: 6px; }
+.hero-banner-sub { color: rgba(255,255,255,0.93); font-size: 15px; margin-bottom: 14px; }
+.chip {
+    display: inline-block; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.4);
+    color: #ffffff; border-radius: 999px; padding: 4px 12px; font-size: 12.5px; margin: 0 6px 6px 0;
+}
+
+/* ----- review highlight, flags, score cards ----- */
 .highlight-box {
     background: #ffffff; border-radius: 12px; padding: 16px 18px;
-    line-height: 2.0; font-size: 15.5px; color: #222222;
-    border: 1px solid rgba(0,0,0,0.08);
+    line-height: 2.0; font-size: 15.5px; color: #222222; border: 1px solid rgba(0,0,0,0.08);
 }
-.legend-chip {
-    display: inline-block; padding: 2px 10px; border-radius: 6px;
-    font-size: 12.5px; margin-right: 8px; color: #222222;
-}
+.legend-chip { display: inline-block; padding: 2px 10px; border-radius: 6px; font-size: 12.5px; margin-right: 8px; color: #222222; }
 .flag-box {
     background: #FFF4E5; border-left: 5px solid #E67E22; border-radius: 8px;
     padding: 10px 14px; margin-bottom: 8px; color: #5D3A00; font-size: 14px;
 }
 .score-card {
     border-radius: 20px; padding: 26px 20px; text-align: center; color: #ffffff;
-    box-shadow: 8px 8px 18px rgba(0,0,0,0.18), -6px -6px 14px rgba(255,255,255,0.6);
-    margin-bottom: 18px;
+    box-shadow: 8px 8px 18px rgba(0,0,0,0.18), -6px -6px 14px rgba(255,255,255,0.6); margin-bottom: 18px;
 }
 .score-number { font-size: 64px; font-weight: 800; line-height: 1.1; }
 .score-label { font-size: 20px; font-weight: 700; margin-top: 4px; }
-.score-sub { font-size: 13px; opacity: 0.92; margin-top: 6px; }
+.score-sub { font-size: 13px; opacity: 0.95; margin-top: 6px; }
+.deal-badge {
+    display: inline-block; color: #ffffff; border-radius: 12px; padding: 6px 16px;
+    font-size: 18px; font-weight: 700; margin-bottom: 10px;
+}
 
-/* ---------- Sidebar styled like the Figma design ---------- */
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1F4E79, #163a5c);
+/* ----- buttons ----- */
+div.stButton > button, div.stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {
+    border-radius: 12px; font-weight: 600; transition: transform 0.15s ease, filter 0.15s ease;
+    box-shadow: 4px 4px 10px rgba(0,0,0,0.14), -3px -3px 8px rgba(255,255,255,0.6);
 }
-[data-testid="stSidebar"] * {
-    color: #FFFFFF !important;
+div.stButton > button:hover, div.stDownloadButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover {
+    transform: translateY(-2px); filter: brightness(1.06);
 }
-[data-testid="stSidebar"] .stRadio label {
-    font-weight: 600;
-    padding: 6px 4px;
+div.stButton > button[kind="primary"], div.stButton > button[data-testid="stBaseButton-primary"],
+div[data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"],
+div[data-testid="stFormSubmitButton"] > button[data-testid="stBaseButton-primaryFormSubmit"] {
+    background: linear-gradient(135deg, {{accent}}, {{accent_dark}}); color: #ffffff; border: none;
 }
-[data-testid="stSidebar"] hr {
-    border-color: rgba(255,255,255,0.2);
+div.stButton > button[kind="primary"] p, div.stButton > button[data-testid="stBaseButton-primary"] p { color: #ffffff; }
+div.stButton > button[kind="secondary"], div.stButton > button[data-testid="stBaseButton-secondary"],
+div.stDownloadButton > button {
+    background: #ffffff; color: {{brand_dark}}; border: 1.5px solid {{brand}};
 }
+
+/* ----- inputs, tabs, progress, metrics ----- */
+.stTextArea textarea, .stTextInput input, .stNumberInput input { border-radius: 10px !important; box-shadow: inset 2px 2px 6px rgba(0,0,0,0.07); }
+.stTextArea textarea:focus, .stTextInput input:focus, .stNumberInput input:focus {
+    border-color: {{brand}} !important; box-shadow: 0 0 0 2px {{brand}}44 !important;
+}
+button[data-baseweb="tab"] { font-weight: 600; }
+button[data-baseweb="tab"][aria-selected="true"] { color: {{brand_dark}}; }
+div[data-baseweb="tab-highlight"] { background-color: {{accent}} !important; }
+div[data-testid="stProgress"] div[role="progressbar"] > div, .stProgress > div > div > div > div {
+    background: linear-gradient(90deg, {{brand}}, {{brand_dark}}) !important;
+}
+[data-testid="stMetricValue"] { color: {{ink}}; font-weight: 700; }
+a { color: {{brand_dark}}; }
+
+/* ----- sidebar (kept last so it wins) ----- */
+[data-testid="stSidebar"] { background: linear-gradient(180deg, {{side1}}, {{side2}}); }
+[data-testid="stSidebar"] * { color: #FFFFFF !important; }
+[data-testid="stSidebar"] .stRadio label { font-weight: 600; padding: 6px 4px; }
+[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.2); }
 [data-testid="stSidebar"] div.stButton > button {
-    background: rgba(255,255,255,0.08);
-    color: #ffb3b3 !important;
-    border: 1px solid rgba(255,255,255,0.25);
-    box-shadow: none;
+    background: rgba(255,255,255,0.10) !important; color: #ffd0d0 !important;
+    border: 1px solid rgba(255,255,255,0.3) !important; box-shadow: none !important;
 }
-</style>
-""", unsafe_allow_html=True)
+"""
+
+
+def theme_css(name):
+    """The <style> block for a theme name. Unknown names fall back to the default theme."""
+    palette = THEMES.get(name) or THEMES[DEFAULT_THEME]
+    css = THEME_TEMPLATE
+    for key, value in palette.items():
+        css = css.replace("{{" + key + "}}", value)
+    return "<style>" + css + "</style>"
+
+
+if st.session_state.get("theme") not in THEMES:
+    st.session_state["theme"] = DEFAULT_THEME
+st.markdown(theme_css(st.session_state["theme"]), unsafe_allow_html=True)
 
 VALID_USERNAME = "admin"
 VALID_PASSWORD = "admin123"
@@ -753,8 +810,15 @@ def login_page():
 # HOME PAGE
 # ============================================================
 def home_page():
-    st.markdown('<h1 class="hero-title">🕵️ Fake Review Detection System</h1>', unsafe_allow_html=True)
-    st.write("A Machine Learning based system to detect fake product reviews.")
+    st.markdown(
+        """<div class="hero-banner">
+        <div class="hero-banner-title">🕵️ Shop smarter. Spot fake reviews.</div>
+        <div class="hero-banner-sub">Check if reviews are real, see a product's Trust Score, and find out
+        if today is a good day to buy.</div>
+        <span class="chip">🧠 AI review check</span><span class="chip">🛡️ Trust Score</span>
+        <span class="chip">💰 Price forecast</span><span class="chip">🚩 Red-flag alerts</span></div>""",
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.subheader("📖 About This Project")
@@ -1222,7 +1286,8 @@ def analyze_prices(df):
         "above_min": (cur - mn) / mn * 100 if mn else 0.0,
         "vs_avg": (cur - avg) / avg * 100 if avg else 0.0,
         "can_forecast": n >= 5 and span_days >= 7,
-        "proj": {}, "trend30": None,
+        "proj": {}, "trend30": None, "sigma": None, "slope_per_day": None,
+        "stable": mn > 0 and (mx - mn) / mn < 0.03,
     }
 
     ago = d[d["date"] <= last_date - timedelta(days=30)]
@@ -1257,6 +1322,7 @@ def analyze_prices(df):
         resid = y - (slope * x + intercept)
         sigma = float(resid.std(ddof=1)) if len(w) > 1 else 0.0
         res["slope_per_day"] = float(slope)
+        res["sigma"] = sigma
         for h in (7, 15, 30):
             est = cur + slope * h                       # start from today's real price
             est = float(min(max(est, mn * 0.9), mx * 1.1))
@@ -1299,13 +1365,106 @@ def price_verdict(res):
             "reason": f"The price is around the middle of its range ({rng}). No strong reason to rush or to wait.{note}"}
 
 
+def forecast_confidence(res):
+    """How much to trust the forecast: High / Medium / Low, with the reason. None if there is no forecast."""
+    if not res["can_forecast"]:
+        return None
+    n, span = res["n"], res["span_days"]
+    pts = 2 if n >= 20 else 1 if n >= 10 else 0
+    days = 2 if span >= 30 else 1 if span >= 14 else 0
+    noise = (res["sigma"] or 0.0) / res["current"] if res["current"] else 1.0
+    calm = 2 if noise <= 0.03 else 1 if noise <= 0.08 else 0
+    total = pts + days + calm
+    level = "High" if total >= 5 else "Medium" if total >= 3 else "Low"
+    moves = {2: "small", 1: "moderate", 0: "large"}[calm]
+    return {"level": level, "points": total,
+            "why": f"based on {n} prices over {span} days; the price moves are {moves}."}
+
+
+def deal_score(res, trust_score=None):
+    """One 0-100 number: how good is today's price? Parts: price level, price direction, review trust."""
+    price_part = 50.0 if res["stable"] else 100.0 - res["range_pos"]          # lower in its range = better
+    t30 = res["trend30"]
+    dir_part = 50.0 if t30 is None else float(min(max(50 + 5 * t30, 0), 100))   # falling = wait, rising = buy sooner
+    if trust_score is None:
+        weights = (0.55, 0.45, 0.0)
+    else:
+        weights = (0.45, 0.30, 0.25)
+    trust_part = float(trust_score) if trust_score is not None else 0.0
+    score = price_part * weights[0] + dir_part * weights[1] + trust_part * weights[2]
+    score = int(round(min(max(score, 0), 100)))
+    if score >= 75:
+        label, color = "Great deal", "#1E8449"
+    elif score >= 60:
+        label, color = "Good deal", "#2E7D32"
+    elif score >= 45:
+        label, color = "Okay", "#B45309"
+    else:
+        label, color = "Poor timing", "#B3261E"
+    return {"score": score, "label": label, "color": color,
+            "parts": [("Price level (lower in its range is better)", price_part, weights[0]),
+                      ("Price direction (next 30 days)", dir_part, weights[1]),
+                      ("Review trust", trust_part, weights[2])]}
+
+
+def target_analysis(res, target):
+    """How realistic is the price the user wants to pay?"""
+    cur, mn, n = res["current"], res["min"], res["n"]
+    d = res["d"]
+    if target >= cur:
+        return {"code": "reached", "headline": "🎯 Today's price is already at or below your target.",
+                "details": [f"You can buy now at ₹{cur:,.0f}, which is ₹{target - cur:,.0f} under your target."]}
+
+    gap = cur - target
+    details = [f"Your target is ₹{gap:,.0f} ({gap / cur * 100:.1f}%) below today's price."]
+    hits = d[d["price"] <= target]
+    code = "possible"
+    if len(hits):
+        details.append(f"The price was at or below ₹{target:,.0f} on {len(hits)} of {n} recorded days "
+                       f"(last on {hits['date'].iloc[-1].strftime('%d %b %Y')}), so it has been this low before.")
+    else:
+        code = "unlikely"
+        details.append(f"It is below the lowest price seen so far (₹{mn:,.0f}), so it would need a bigger discount than before.")
+
+    if res["can_forecast"]:
+        slope = res["slope_per_day"]
+        if slope < 0 and target >= mn * 0.9:
+            days = gap / -slope
+            if days <= 60:
+                eta = res["last_date"] + timedelta(days=days)
+                details.append(f"If the recent fall continues, it could reach your target in about {days:.0f} days "
+                               f"(around {eta.strftime('%d %b')}). This is a rough guess.")
+                if days <= 30 and code != "unlikely":
+                    code = "likely"
+            else:
+                details.append("The price is falling slowly, so it may take more than 2 months to reach your target.")
+        elif slope >= 0:
+            details.append("The price is not falling right now, so it may not reach your target soon without a sale.")
+
+    _, upcoming = sale_season_info(today_midnight())
+    if upcoming and code != "unlikely":
+        start, name = upcoming[0]
+        days_to = (start - today_midnight()).days
+        if days_to <= 45:
+            details.append(f"A usual sale ({name}) starts in about {days_to} day(s). Prices often drop during sales.")
+
+    headline = {"likely": "🎯 Your target looks reachable soon.",
+                "possible": "🎯 Your target is possible, but not guaranteed.",
+                "unlikely": "🎯 Your target looks unlikely right now."}[code]
+    return {"code": code, "headline": headline, "details": details}
+
+
+def rupee_delta(diff):
+    return f"{'-' if diff < 0 else '+'}₹{abs(diff):,.0f}"
+
+
 def quick_trust(reviews, model, vectorizer):
     """Same Trust Score formula as the Product Trust Score page."""
     fake_prob, is_fake = predict_many(reviews, model, vectorizer)
     return int(round((1 - float(fake_prob.mean())) * 100)), int(is_fake.sum()), len(reviews)
 
 
-def draw_price_chart(res):
+def draw_price_chart(res, target=None):
     d = res["d"]
     dates = list(d["date"].dt.to_pydatetime())
     fig, ax = plt.subplots(figsize=(7, 3.6))
@@ -1313,6 +1472,8 @@ def draw_price_chart(res):
             marker="o" if len(d) <= 40 else None, label="Past price")
     ax.axhline(res["min"], color="#27AE60", linestyle="--", linewidth=1, label="Lowest")
     ax.axhline(res["avg"], color="#7F8C8D", linestyle=":", linewidth=1, label="Average")
+    if target:
+        ax.axhline(target, color="#C2410C", linestyle="-.", linewidth=1.2, label="Your target")
     if res["can_forecast"]:
         last = dates[-1]
         fx = [last] + [last + timedelta(days=h) for h in (7, 15, 30)]
@@ -1330,7 +1491,7 @@ def draw_price_chart(res):
     return fig
 
 
-def render_price_result(res, product_name, trust):
+def render_price_result(res, product_name, trust, target=None):
     v = res["verdict"]
     title = html.escape(product_name.strip()) if product_name.strip() else "This product"
     st.markdown(
@@ -1343,20 +1504,32 @@ def render_price_result(res, product_name, trust):
     )
 
     # ---- trust of the reviews (optional)
+    trust_score = None
     if trust is not None:
-        score, fake_n, total = trust
-        if score < 50:
+        trust_score, fake_n, total = trust
+        if trust_score < 50:
             st.markdown(
-                f'<div class="flag-box">⚠️ <b>Review Trust Score: {score}/100</b> — {fake_n} of {total} reviews look fake. '
+                f'<div class="flag-box">⚠️ <b>Review Trust Score: {trust_score}/100</b> — {fake_n} of {total} reviews look fake. '
                 f'Be careful with this product even if the price looks good.</div>', unsafe_allow_html=True)
-        elif score < 75:
+        elif trust_score < 75:
             st.markdown(
-                f'<div class="flag-box">⚠️ <b>Review Trust Score: {score}/100</b> — some reviews look fake '
+                f'<div class="flag-box">⚠️ <b>Review Trust Score: {trust_score}/100</b> — some reviews look fake '
                 f'({fake_n} of {total}). Read the reviews carefully.</div>', unsafe_allow_html=True)
         else:
-            st.success(f"✅ Review Trust Score: {score}/100 — the reviews look mostly genuine ({fake_n} of {total} flagged).")
-        if score >= 75 and v["code"] in ("buy", "good"):
+            st.success(f"✅ Review Trust Score: {trust_score}/100 — the reviews look mostly genuine ({fake_n} of {total} flagged).")
+        if trust_score >= 75 and v["code"] in ("buy", "good"):
             st.success("👍 Price and reviews both look good.")
+
+    # ---- deal score
+    ds = deal_score(res, trust_score)
+    st.markdown("#### 🏆 Deal Score")
+    st.markdown(f'<div class="deal-badge" style="background:{ds["color"]};">{ds["score"]}/100 · {ds["label"]}</div>',
+                unsafe_allow_html=True)
+    for part_name, value, weight in ds["parts"]:
+        if weight > 0:
+            st.progress(min(max(value / 100.0, 0.0), 1.0))
+            st.caption(f"{part_name}: {value:.0f}/100 (counts for {weight * 100:.0f}% of the score)")
+    st.caption("A higher score means today looks like a better time to buy.")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Today", f"₹{res['current']:,.0f}")
@@ -1399,12 +1572,39 @@ def render_price_result(res, product_name, trust):
                 "Change vs today": f"{(est - res['current']) / res['current'] * 100:+.1f}%",
             })
         st.dataframe(pd.DataFrame(table))
+        conf = forecast_confidence(res)
+        st.markdown(f"**Forecast confidence: {conf['level']}** — {conf['why']}")
         st.caption("The likely range is where the price should be about 8 times out of 10 if the recent pattern continues. "
                    "It gets wider further into the future.")
+
+        # ---- buy today or wait
+        est30, lo30, hi30 = res["proj"][30]
+        diff = est30 - res["current"]
+        st.markdown("#### 💸 Buy today or wait?")
+        b1, b2, b3 = st.columns(3)
+        b1.metric("Buy today", f"₹{res['current']:,.0f}")
+        b2.metric("Wait 30 days (estimate)", f"₹{est30:,.0f}", delta=rupee_delta(diff), delta_color="inverse")
+        b3.metric("Possible range", f"₹{lo30:,.0f} – ₹{hi30:,.0f}")
+        if diff < -0.01 * res["current"]:
+            st.write(f"If the recent trend continues, waiting 30 days could save you about **₹{-diff:,.0f}**. "
+                     f"But the price can also end up as high as ₹{hi30:,.0f}, so decide how much risk you are okay with.")
+        elif diff > 0.01 * res["current"]:
+            st.write(f"The price looks like it is rising. Waiting could cost you about **₹{diff:,.0f}** more.")
+        else:
+            st.write("The price is expected to stay about the same, so waiting is unlikely to change much.")
     else:
         st.info("To see a forecast, add at least 5 prices that cover 7 days or more.")
 
-    st.pyplot(draw_price_chart(res))
+    # ---- target price
+    if target and target > 0:
+        st.markdown("#### 🎯 Your target price")
+        ta = target_analysis(res, target)
+        box = {"reached": st.success, "likely": st.success, "possible": st.info, "unlikely": st.warning}[ta["code"]]
+        box(ta["headline"])
+        for line in ta["details"]:
+            st.write("• " + line)
+
+    st.pyplot(draw_price_chart(res, target if target and target > 0 else None))
 
     # ---- sale seasons
     active, upcoming = sale_season_info(today_midnight())
@@ -1424,7 +1624,7 @@ def render_price_result(res, product_name, trust):
                "It is a guide, not a promise.")
 
 
-def run_price_analysis(df, product_name, current_price, reviews_text):
+def run_price_analysis(df, product_name, current_price, reviews_text, target=0.0):
     df = df.dropna()
     if len(df) < 3:
         st.warning("⚠️ Please give at least 3 prices (with dates) so that something useful can be shown.")
@@ -1450,7 +1650,7 @@ def run_price_analysis(df, product_name, current_price, reviews_text):
         model, vectorizer = load_model()
         trust = quick_trust(reviews, model, vectorizer)
 
-    render_price_result(res, product_name, trust)
+    render_price_result(res, product_name, trust, target)
 
 
 def price_prediction_page():
@@ -1475,6 +1675,10 @@ def price_prediction_page():
         "💵 Today's price in ₹ (optional)", min_value=0.0, value=0.0, step=1.0, key="pp_cur",
         help="Leave 0 to use the last price in your list as today's price.")
 
+    target_in = st.number_input(
+        "🎯 My target price in ₹ (optional)", min_value=0.0, value=0.0, step=1.0, key="pp_target",
+        help="The price at which you would like to buy. The app tells you how realistic it is.")
+
     with st.expander("➕ Also check the product's reviews (optional)"):
         reviews_text = st.text_area("Paste reviews of this product, one per line:", height=140, key="pp_reviews")
         st.caption("Adds a Review Trust Score to the advice, so you also know if the reviews can be trusted.")
@@ -1498,7 +1702,7 @@ def price_prediction_page():
                 else:
                     st.warning("⚠️ Please paste your price history first.")
             else:
-                run_price_analysis(df, product_name, current_in, reviews_text)
+                run_price_analysis(df, product_name, current_in, reviews_text, target_in)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
@@ -1522,7 +1726,7 @@ def price_prediction_page():
                     if df.empty:
                         st.error("❌ No usable prices found. Check the date and price columns you selected.")
                     else:
-                        run_price_analysis(df, product_name, current_in, reviews_text)
+                        run_price_analysis(df, product_name, current_in, reviews_text, target_in)
         st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
@@ -2102,6 +2306,9 @@ else:
 
     nav_choice = st.sidebar.radio("Go to:", pages, index=pages.index(st.session_state.page))
     st.session_state.page = nav_choice
+
+    with st.sidebar.expander("🎨 Theme"):
+        st.radio("Choose a look", list(THEMES), key="theme", label_visibility="collapsed")
 
     if st.sidebar.button("🚪 Logout"):
         st.session_state.logged_in = False
