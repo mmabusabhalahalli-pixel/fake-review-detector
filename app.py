@@ -18,15 +18,15 @@ import requests
 st.set_page_config(
     page_title="Fake Review Detector",
     page_icon="🕵️",
-    layout="wide"
+    layout="centered"
 )
 
 # ---------- Themes (colours of the whole app) ----------
 # "brand_dark" and "accent" are used behind/under white or dark text, so they are dark enough to read easily.
 THEMES = {
-    "Premium Trust": dict(bg1="#F8FAFC", bg2="#E8F5F2", soft="#F0FDFA", ink="#0B1220",
-                          brand="#14B8A6", brand_dark="#0F766E", accent="#14B8A6", accent_dark="#0F766E",
-                          side1="#0B1220", side2="#123B46"),
+    "Fresh Teal": dict(bg1="#F2FBF8", bg2="#DCF1EA", soft="#E6F6F2", ink="#12344D",
+                       brand="#0E9F8E", brand_dark="#0F766E", accent="#C2410C", accent_dark="#9A3412",
+                       side1="#0F2B3D", side2="#0B5D63"),
     "Royal Blue": dict(bg1="#F0F4F8", bg2="#D9E6F5", soft="#EAF1F8", ink="#1F4E79",
                        brand="#2E86C1", brand_dark="#1F4E79", accent="#C0392B", accent_dark="#922B21",
                        side1="#1F4E79", side2="#163A5C"),
@@ -34,7 +34,7 @@ THEMES = {
                         brand="#8B5CF6", brand_dark="#5B21B6", accent="#BE185D", accent_dark="#9D174D",
                         side1="#2E1065", side2="#4C1D95"),
 }
-DEFAULT_THEME = "Premium Trust"
+DEFAULT_THEME = "Fresh Teal"
 
 THEME_TEMPLATE = r"""
 .stApp { background: linear-gradient(135deg, {{bg1}} 0%, {{bg2}} 100%); }
