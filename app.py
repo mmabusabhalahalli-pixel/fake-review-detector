@@ -456,16 +456,37 @@ def google_auth_available():
         return False
 
 
-def call_apps_script(payload):
+def _remember_api_error(msg):
+    """Keeps the last technical error so the screen can show it (helps find the real problem)."""
+    try:
+        st.session_state["last_api_error"] = None if msg is None else str(msg).replace("`", "'")[:200]
+    except Exception:
+        pass
+
+
+def api_error_detail():
+    msg = st.session_state.get("last_api_error")
+    return f"\n\nTechnical detail: `{msg}`" if msg else ""
+
+
+def call_apps_script(payload, timeout=25):
     """POST a JSON payload to the Apps Script backend and return the parsed response.
-    Returns None if not connected yet or on any network error — callers must handle that."""
+    Returns None if not connected yet or on any network error — callers must handle that.
+    Password hashing in Google Apps Script can be slow, so we wait up to 25 seconds."""
     url = get_apps_script_url()
     if not url:
         return None
     try:
-        resp = requests.post(url, json=payload, timeout=8)
-        return resp.json()
-    except Exception:
+        resp = requests.post(url, json=payload, timeout=timeout)
+        try:
+            data = resp.json()
+        except ValueError:
+            _remember_api_error(f"Backend did not return JSON (HTTP {resp.status_code}): {resp.text[:80]}")
+            return None
+        _remember_api_error(None)
+        return data
+    except Exception as e:
+        _remember_api_error(f"{type(e).__name__}: {e}")
         return None
 
 
@@ -488,7 +509,7 @@ def call_admin_script(payload):
 def otp_error_message(result):
     """Friendly message for a failed 'send code' request."""
     if result is None:
-        return "❌ Could not reach the account database. Try again later."
+        return "❌ Could not reach the account database. Try again later." + api_error_detail()
     status = result.get("status")
     if status == "wait":
         return f"⏳ Please wait {result.get('seconds', 60)} seconds before asking for a new code."
@@ -543,9 +564,17 @@ def login_page():
                     st.session_state.page = "Home"
                     st.rerun()
                 else:
-                    result = call_apps_script({"type": "login", "username": username, "password": password})
+                    with st.spinner("Checking your login... (can take up to 25 seconds)"):
+                        result = call_apps_script({"type": "login", "username": username, "password": password})
                     if result is None:
-                        st.error("❌ Invalid username or password. Please try again.")
+                        if not get_apps_script_url():
+                            st.error("❌ Invalid username or password. Please try again.")
+                        else:
+                            st.error(
+                                "⏳ The server did not answer. This is NOT a wrong-password error. "
+                                "Wait a few seconds and try once more."
+                                + api_error_detail()
+                            )
                     elif result.get("status") == "ok":
                         # Use the canonical username/email returned by the database so that
                         # history stays consistent even if the user logs in with email one day
@@ -670,10 +699,11 @@ def login_page():
                     elif fp_new_pass != fp_confirm_pass:
                         st.error("❌ Passwords do not match.")
                     else:
-                        result = call_apps_script({
-                            "type": "reset_with_otp", "username": account,
-                            "otp": otp.strip(), "password": fp_new_pass,
-                        })
+                        with st.spinner("Updating your password... (can take up to 25 seconds)"):
+                            result = call_apps_script({
+                                "type": "reset_with_otp", "username": account,
+                                "otp": otp.strip(), "password": fp_new_pass,
+                            })
                         status = result.get("status") if result else None
                         if status == "ok":
                             st.session_state.fp_stage = 1
@@ -692,7 +722,12 @@ def login_page():
                         elif status == "weak_password":
                             st.error("❌ Password is too weak.")
                         elif result is None:
-                            st.error("❌ Could not reach the account database. Try again later.")
+                            st.error(
+                                "⏳ The server did not answer in time. Your password may already have been changed. "
+                                "**Open the Login tab and try your NEW password first.** "
+                                "If that fails, click 'Send a new code' below and try again."
+                                + api_error_detail()
+                            )
                         else:
                             st.error("❌ Something went wrong. Please try again.")
 
