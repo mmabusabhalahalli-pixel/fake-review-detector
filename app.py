@@ -1385,17 +1385,21 @@ def deal_score(res, trust_score=None):
     """One 0-100 number: how good is today's price? Parts: price level, price direction, review trust."""
     price_part = 50.0 if res["stable"] else 100.0 - res["range_pos"]          # lower in its range = better
     t30 = res["trend30"]
-    dir_part = 50.0 if t30 is None else float(min(max(50 + 5 * t30, 0), 100))   # falling = wait, rising = buy sooner
-    if trust_score is None:
-        weights = (0.55, 0.45, 0.0)
+    # steady price is fine (70). A falling price means "wait" (counts strongly), a rising one "buy sooner".
+    if t30 is None:
+        dir_part = 70.0
     else:
-        weights = (0.45, 0.30, 0.25)
+        dir_part = float(min(max(70 + (10 * t30 if t30 < 0 else 6 * t30), 0), 100))
+    if trust_score is None:
+        weights = (0.45, 0.55, 0.0)
+    else:
+        weights = (0.35, 0.40, 0.25)
     trust_part = float(trust_score) if trust_score is not None else 0.0
     score = price_part * weights[0] + dir_part * weights[1] + trust_part * weights[2]
     score = int(round(min(max(score, 0), 100)))
     if score >= 75:
         label, color = "Great deal", "#1E8449"
-    elif score >= 60:
+    elif score >= 65:
         label, color = "Good deal", "#2E7D32"
     elif score >= 45:
         label, color = "Okay", "#B45309"
@@ -1434,7 +1438,7 @@ def target_analysis(res, target):
                 eta = res["last_date"] + timedelta(days=days)
                 details.append(f"If the recent fall continues, it could reach your target in about {days:.0f} days "
                                f"(around {eta.strftime('%d %b')}). This is a rough guess.")
-                if days <= 30 and code != "unlikely":
+                if days <= 30:
                     code = "likely"
             else:
                 details.append("The price is falling slowly, so it may take more than 2 months to reach your target.")
