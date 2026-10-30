@@ -37,7 +37,7 @@ THEMES = {
 DEFAULT_THEME = "Fresh Teal"
 
 THEME_TEMPLATE = r"""
-.stApp { background: linear-gradient(135deg, {{bg1}} 0%, {{bg2}} 100%); }
+.stApp { background: linear-gradient(135deg, {{bg1}} 0%, {{bg2}} 100%); color-scheme: light; }
 
 /* ----- cards ----- */
 .platform-card {
@@ -152,10 +152,38 @@ a { color: {{brand_dark}}; }
 """
 
 
+# The page background is light, so text in the MAIN area must be dark. Without this, phones and
+# browsers in dark mode make Streamlit's text white, and it vanishes on the light background.
+# Every rule starts with a main-area prefix, so the dark sidebar keeps its white text.
+MAIN_SCOPES = ['[data-testid="stMain"]', 'section.main']
+
+
+def _in_main(selectors):
+    return ", ".join(f"{scope} {sel}" for scope in MAIN_SCOPES for sel in selectors)
+
+
+_MD = '[data-testid="stMarkdownContainer"]'
+READABLE_TEXT_TEMPLATE = (
+    "\n/* ----- readable text in light AND dark mode (main area only) ----- */\n"
+    + _in_main([f"{_MD} p", f"{_MD} li", f"{_MD} strong", f"{_MD} em", f"{_MD} td", f"{_MD} th"])
+    + " { color: #1F2937 !important; }\n"
+    + _in_main(["h1", "h2", "h3", "h4", "h5", "h6", "label", "label p",
+                '[data-testid="stWidgetLabel"] p', '[data-testid="stWidgetLabel"] span',
+                '[data-testid="stMetricLabel"] p', '[data-testid="stMetricLabel"] div',
+                '[data-testid="stExpander"] summary p', '[data-testid="stExpander"] summary span',
+                'button[data-baseweb="tab"][aria-selected="false"] p'])
+    + " { color: {{ink}} !important; }\n"
+    + _in_main(['button[data-baseweb="tab"][aria-selected="true"] p'])
+    + " { color: {{brand_dark}} !important; }\n"
+    + _in_main(['[data-testid="stCaptionContainer"]', '[data-testid="stCaptionContainer"] p'])
+    + " { color: #4B5563 !important; }\n"
+)
+
+
 def theme_css(name):
     """The <style> block for a theme name. Unknown names fall back to the default theme."""
     palette = THEMES.get(name) or THEMES[DEFAULT_THEME]
-    css = THEME_TEMPLATE
+    css = THEME_TEMPLATE + READABLE_TEXT_TEMPLATE
     for key, value in palette.items():
         css = css.replace("{{" + key + "}}", value)
     return "<style>" + css + "</style>"
@@ -606,7 +634,6 @@ def login_page():
 
         # ================= LOGIN TAB =================
         with tab_login:
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
 
             if not get_apps_script_url():
                 st.caption("ℹ️ Account database not connected yet — only the demo account works for now.")
@@ -661,11 +688,9 @@ def login_page():
                 f'Username: <b>{VALID_USERNAME}</b> &nbsp;|&nbsp; Password: <b>{VALID_PASSWORD}</b></div>',
                 unsafe_allow_html=True,
             )
-            st.markdown('</div>', unsafe_allow_html=True)
 
         # ================= SIGN UP TAB =================
         with tab_signup:
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.write("Create a new account to access the system.")
 
             new_user = st.text_input("👤 Choose a Username", key="signup_user")
@@ -707,11 +732,9 @@ def login_page():
                         st.error("❌ Password is too weak.")
                     else:
                         st.error(result.get("message", "❌ Registration failed."))
-            st.markdown('</div>', unsafe_allow_html=True)
 
         # ================= FORGOT PASSWORD TAB (6-digit code by email) =================
         with tab_forgot:
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             stage = st.session_state.get("fp_stage", 1)
 
             if st.session_state.get("fp_flash"):
@@ -803,7 +826,6 @@ def login_page():
                         st.session_state.fp_stage = 1
                         st.rerun()
 
-            st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ============================================================
@@ -820,7 +842,6 @@ def home_page():
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.subheader("📖 About This Project")
     st.write("""
     Online reviews strongly influence buying decisions on e-commerce platforms.
@@ -834,7 +855,6 @@ def home_page():
     - **Dataset:** 40,432 labeled product reviews (Kaggle)
     - **Built by:** Group 1, BCA — Shri Gavisiddeswar Arts, Commerce & Science College, Koppal
     """)
-    st.markdown('</div>', unsafe_allow_html=True)
 
     st.subheader("🛒 Check Reviews From Your Favorite Platforms")
     st.write("Click a platform below to open it, copy any review, and paste it into the Review Checker page.")
@@ -968,7 +988,6 @@ def review_checker_page():
 
     model, vectorizer = load_model()
 
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
     review_input = st.text_area(
         "✍️ Enter a product review:", height=150,
         placeholder="e.g. This product is amazing! Best purchase ever, highly recommend!"
@@ -989,7 +1008,6 @@ def review_checker_page():
     res = st.session_state.get("rc_result")
     if res:
         render_review_result(res, model, vectorizer)
-    st.markdown('</div>', unsafe_allow_html=True)
 
     with st.expander("💡 Try these sample reviews"):
         st.write("**Sample (often Real):**")
@@ -1113,7 +1131,6 @@ def trust_score_page():
     tab1, tab2 = st.tabs(["📋 Paste Reviews", "📁 Upload CSV"])
 
     with tab1:
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
         st.write("Copy 10–20 reviews of the product from Amazon, Flipkart, etc. — **one review per line**.")
         pasted = st.text_area(
             "Paste reviews here (one per line):", height=220, key="trust_paste",
@@ -1125,10 +1142,8 @@ def trust_score_page():
                 st.warning("⚠️ Please paste at least one review.")
             else:
                 analyze_product(lines, product_name, model, vectorizer, skipped)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
         up = st.file_uploader("Upload CSV or TXT file", type=["csv", "txt"], key="trust_csv")
         if up is not None:
             df = read_review_file(up, "trust")
@@ -1141,7 +1156,6 @@ def trust_score_page():
                     st.warning("⚠️ No review text found in that column.")
                 else:
                     analyze_product(reviews, product_name, model, vectorizer, skipped)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "Home"; st.rerun()
@@ -1690,7 +1704,6 @@ def price_prediction_page():
     tab1, tab2 = st.tabs(["📋 Paste price history", "📁 Upload CSV"])
 
     with tab1:
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
         price_only = st.checkbox("My list has only prices (one per day, oldest first, the last one is today)",
                                  key="pp_only")
         pasted = st.text_area(
@@ -1707,10 +1720,8 @@ def price_prediction_page():
                     st.warning("⚠️ Please paste your price history first.")
             else:
                 run_price_analysis(df, product_name, current_in, reviews_text, target_in)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
         up = st.file_uploader("Upload CSV file", type=["csv"], key="pp_csv")
         if up is not None:
             try:
@@ -1731,7 +1742,6 @@ def price_prediction_page():
                         st.error("❌ No usable prices found. Check the date and price columns you selected.")
                     else:
                         run_price_analysis(df, product_name, current_in, reviews_text, target_in)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "Home"; st.rerun()
@@ -1783,7 +1793,6 @@ def batch_checker_page():
     tab1, tab2 = st.tabs(["📋 Paste Multiple Reviews", "📁 Upload CSV File"])
 
     with tab1:
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
         st.write("Copy reviews from Amazon, Flipkart, Meesho, etc. and paste them below — **one review per line**.")
         pasted_text = st.text_area(
             "Paste reviews here (one per line):",
@@ -1800,10 +1809,8 @@ def batch_checker_page():
                 show_batch_results(result_df)
                 if skipped:
                     st.caption(f"Empty lines skipped: {skipped}")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload CSV or TXT file", type=["csv", "txt"])
 
         if uploaded_file is not None:
@@ -1823,7 +1830,6 @@ def batch_checker_page():
                     show_batch_results(result_df)
                     if skipped:
                         st.caption(f"Empty rows skipped: {skipped}")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "Home"; st.rerun()
@@ -1847,7 +1853,6 @@ def insights_page():
     fake_freq = {feature_names[i]: coefs[i] for i in fake_idx}
     real_freq = {feature_names[i]: abs(coefs[i]) for i in real_idx}
 
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.subheader("🔴 Words Most Associated with FAKE Reviews")
     wc_fake = WordCloud(width=800, height=350, background_color="white", colormap="Reds").generate_from_frequencies(fake_freq)
     fig1, ax1 = plt.subplots(figsize=(8, 3.5))
@@ -1861,7 +1866,6 @@ def insights_page():
     ax2.imshow(wc_real, interpolation="bilinear")
     ax2.axis("off")
     st.pyplot(fig2)
-    st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "Home"; st.rerun()
@@ -1900,20 +1904,16 @@ def my_history_page():
             fake_count = int(mine["prediction"].astype(str).str.contains("Fake").sum())
             real_count = total - fake_count
 
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
             c1.metric("Reviews You Checked", total)
             c2.metric("Fake Found", fake_count)
             c3.metric("Real Found", real_count)
-            st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.subheader("Your Recent Reviews")
             shown = mine.sort_values("timestamp", ascending=False)
             st.dataframe(shown[["timestamp", "review", "prediction", "confidence"]])
             csv_out = shown.to_csv(index=False).encode("utf-8")
             st.download_button("⬇️ Download My History (CSV)", csv_out, "my_history.csv", "text/csv")
-            st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "Home"; st.rerun()
@@ -2002,7 +2002,6 @@ def dashboard_page():
             today_count = int((d["ts"].dt.date == now.date()).sum())
 
             # ---------- Key numbers ----------
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Reviews Checked", total)
             c2.metric("Fake Detected", fake_count)
@@ -2011,11 +2010,9 @@ def dashboard_page():
             c4.metric("Fake %", f"{fake_count / total * 100:.1f}%")
             c5.metric("Active Users", int(d["user"].nunique()))
             c6.metric("Checked Today", today_count)
-            st.markdown('</div>', unsafe_allow_html=True)
 
             # ---------- Daily trend ----------
             dd = d.dropna(subset=["ts"]).copy()
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.subheader("📅 Daily Trend")
             if len(dd) == 0:
                 st.info("Dates are not available for these rows, so the trend cannot be drawn.")
@@ -2054,10 +2051,8 @@ def dashboard_page():
                 ax_b.grid(alpha=0.3)
                 fig_b.tight_layout()
                 st.pyplot(fig_b)
-            st.markdown('</div>', unsafe_allow_html=True)
 
             # ---------- Top users ----------
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.subheader("🏆 Most Active Users")
             g = d.groupby("user").agg(checks=("is_fake", "size"), fake=("is_fake", "sum")).reset_index()
             g["fake %"] = (g["fake"] / g["checks"] * 100).round(1)
@@ -2068,10 +2063,8 @@ def dashboard_page():
             fig_u.tight_layout()
             st.pyplot(fig_u)
             st.dataframe(top.rename(columns={"user": "user", "checks": "reviews checked", "fake": "fake found"}))
-            st.markdown('</div>', unsafe_allow_html=True)
 
             # ---------- Fake vs Real pie ----------
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.subheader("Fake vs Real Distribution")
             fig, ax = plt.subplots(figsize=(4, 4))
             if fake_count == 0 or real_count == 0:
@@ -2082,18 +2075,14 @@ def dashboard_page():
                        colors=["#C0392B", "#27AE60"], startangle=90)
             ax.axis("equal")
             st.pyplot(fig)
-            st.markdown('</div>', unsafe_allow_html=True)
 
             # ---------- Recent activity ----------
-            st.markdown('<div class="info-box">', unsafe_allow_html=True)
             st.subheader("Recent Activity")
             recent = d.sort_values("ts", ascending=False).head(15)[["ts", "review", "prediction", "confidence", "user"]].copy()
             recent["ts"] = recent["ts"].dt.strftime("%d %b %Y, %I:%M %p")
             st.dataframe(recent.rename(columns={"ts": "time (IST)"}))
-            st.markdown('</div>', unsafe_allow_html=True)
 
     # ---------- User feedback (always shown, independent of the period filter) ----------
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.subheader("💬 User Feedback on Predictions")
     admin_key = get_admin_key()
     if not admin_key:
@@ -2123,7 +2112,6 @@ def dashboard_page():
             csv_fb = fb.to_csv(index=False).encode("utf-8")
             st.download_button("⬇️ Download all feedback (CSV) — for retraining the model",
                                csv_fb, "user_feedback.csv", "text/csv")
-    st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("⬅️ Back to Home"):
         st.session_state.page = "Home"; st.rerun()
@@ -2209,14 +2197,11 @@ def manage_users_page():
     df = pd.DataFrame(users)
     df["status"] = df["locked"].map(lambda x: "🔒 Locked" if x else "Active")
 
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Users", len(df))
     c2.metric("Admins", int((df["role"] == "admin").sum()))
     c3.metric("Locked Accounts", int(df["locked"].sum()))
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.subheader("All Users")
     q = st.text_input("🔍 Search by username or email", key="um_search")
     view = df
@@ -2225,9 +2210,7 @@ def manage_users_page():
                 | df["email"].astype(str).str.contains(q, case=False, regex=False))
         view = df[mask]
     st.dataframe(view[["username", "email", "role", "status"]])
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.subheader("Manage a user")
     selected = st.selectbox("Select user", df["username"].tolist(), key="um_selected")
     row = df[df["username"] == selected].iloc[0]
@@ -2277,7 +2260,6 @@ def manage_users_page():
         if st.button("Delete User", key="um_delete_btn", type="primary", disabled=not sure):
             run_admin_action({"type": "delete_user", "username": selected},
                              f"✅ {selected} was deleted.")
-    st.markdown('</div>', unsafe_allow_html=True)
 
     back_button("um_back_main")
 
